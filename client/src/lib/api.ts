@@ -64,3 +64,30 @@ export async function analyzeLabelContent(text: string) {
   if (!response.ok) throw new Error("Analysis failed");
   return response.json();
 }
+
+// Medication-related endpoints
+export async function addMedication(medicationData: any) {
+  const response = await fetch(`${API_BASE}/medications`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(medicationData),
+  });
+  if (!response.ok) throw new Error("Failed to add medication");
+  return response.json();
+}
+
+export async function getUserMedications(userId: number) {
+  const response = await fetch(`${API_BASE}/medications/${userId}`);
+  if (!response.ok) throw new Error("Failed to fetch medications");
+  return response.json();
+}
+
+export async function checkMedicationInteractions(medicationId: number, otherMedicationIds: number[]) {
+  const response = await fetch(`${API_BASE}/medication-interactions/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ medicationId, otherMedicationIds }),
+  });
+  if (!response.ok) throw new Error("Failed to check medication interactions");
+  return response.json();
+}

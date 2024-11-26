@@ -15,7 +15,7 @@ export default function HomePage() {
         />
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
           <div className="text-center text-white space-y-4 p-6">
-            <h1 className="text-4xl font-bold">Smart Label Analysis</h1>
+            <h1 className="text-4xl font-bold">LabelWise</h1>
             <p className="text-xl">Understand your nutrition and medication labels instantly</p>
             <Button 
               size="lg" 

@@ -1,7 +1,7 @@
 import type { Express } from "express";
+import { eq, inArray, and } from "drizzle-orm";
 import { db } from "../db";
-import { users, scans, userPreferences } from "@db/schema";
-import { eq } from "drizzle-orm";
+import { users, scans, userPreferences, medications, medicationInteractions } from "@db/schema";
 import { z } from "zod";
 
 export function registerRoutes(app: Express) {
@@ -77,39 +77,6 @@ export function registerRoutes(app: Express) {
         error: "Failed to save preferences",
         message: error instanceof Error ? error.message : "Unknown error"
       });
-    }
-  });
-
-  app.get("/api/preferences/:userId", async (req, res) => {
-    try {
-      const prefs = await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.userId, parseInt(req.params.userId))
-      });
-      res.json(prefs);
-    } catch (error) {
-      res.status(404).json({ error: "Preferences not found" });
-    }
-  });
-
-  // Scan routes
-  app.post("/api/scans", async (req, res) => {
-    try {
-      const scan = await db.insert(scans).values(req.body).returning();
-      res.json(scan[0]);
-    } catch (error) {
-      res.status(400).json({ error: "Failed to save scan" });
-    }
-  });
-
-  app.get("/api/scans/:userId", async (req, res) => {
-    try {
-      const userScans = await db.query.scans.findMany({
-        where: eq(scans.userId, parseInt(req.params.userId)),
-        orderBy: (scans, { desc }) => [desc(scans.createdAt)]
-      });
-      res.json(userScans);
-    } catch (error) {
-      res.status(404).json({ error: "Scans not found" });
     }
   });
 
@@ -194,102 +161,6 @@ export function registerRoutes(app: Express) {
 
   // LLM analysis endpoint
   app.post("/api/analyze", async (req, res) => {
-  // Medication routes
-  app.post("/api/medications", async (req, res) => {
-    try {
-      const medication = await db.insert(medications).values(req.body).returning();
-      res.json(medication[0]);
-    } catch (error) {
-      res.status(400).json({ error: "Failed to add medication" });
-    }
-  });
-
-  app.get("/api/medications/:userId", async (req, res) => {
-    try {
-      const userMeds = await db.query.medications.findMany({
-        where: eq(medications.userId, parseInt(req.params.userId)),
-        orderBy: (medications, { desc }) => [desc(medications.createdAt)]
-      });
-      res.json(userMeds);
-    } catch (error) {
-      res.status(404).json({ error: "Medications not found" });
-    }
-  });
-
-  app.post("/api/medication-interactions/check", async (req, res) => {
-    try {
-      const { medicationId, otherMedicationIds } = req.body;
-      
-      const interactions = await db.query.medicationInteractions.findMany({
-        where: (fields, { and, or, eq, inArray }) => 
-          and(
-            eq(fields.medicationId, medicationId),
-            inArray(fields.interactingMedicationId, otherMedicationIds)
-          )
-      });
-
-      if (interactions.length === 0) {
-        // If no known interactions found, use OpenAI to analyze potential interactions
-        const medication = await db.query.medications.findFirst({
-          where: eq(medications.id, medicationId)
-        });
-
-        const otherMedications = await db.query.medications.findMany({
-          where: (fields, { inArray }) => inArray(fields.id, otherMedicationIds)
-        });
-
-        const OpenAI = (await import('openai')).default;
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-        const prompt = `Analyze potential interactions between these medications:
-        Primary Medication: ${medication?.name} (${medication?.dosage})
-        Other Medications: ${otherMedications.map(m => `${m.name} (${m.dosage})`).join(', ')}
-
-        Provide analysis in JSON format:
-        {
-          "interactions": [{
-            "medications": ["med1", "med2"],
-            "severity": "mild|moderate|severe",
-            "description": "Description of interaction",
-            "recommendations": ["recommendation1", "recommendation2"]
-          }]
-        }`;
-
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4",
-          messages: [
-            {
-              role: "system",
-              content: "You are a medication interaction analysis expert. Analyze the potential interactions between medications and provide detailed information in the specified JSON format."
-            },
-            { role: "user", content: prompt }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7
-        });
-
-        const analysis = JSON.parse(completion.choices[0].message.content || "{}");
-        
-        // Store the analyzed interactions in the database
-        for (const interaction of analysis.interactions) {
-          await db.insert(medicationInteractions).values({
-            medicationId,
-            interactingMedicationId: otherMedications.find(m => m.name === interaction.medications[1])?.id || 0,
-            severity: interaction.severity,
-            description: interaction.description,
-            recommendations: interaction.recommendations
-          });
-        }
-
-        res.json(analysis);
-      } else {
-        res.json({ interactions });
-      }
-    } catch (error) {
-      console.error('Medication Interaction Check Error:', error);
-      res.status(400).json({ error: "Failed to check medication interactions" });
-    }
-  });
     try {
       const { text } = req.body;
 
@@ -323,26 +194,11 @@ export function registerRoutes(app: Express) {
         "allergens": ["array of allergen strings"],
         "warnings": ["array of warning strings"],
         "recommendations": ["array of recommendation strings"]
-      }
-      
-      Important guidelines:
-      1. All numeric values must be numbers, not strings
-      2. Ensure all nutritional values are present and properly scaled
-      3. Score should be calculated based on:
-         - Protein content (higher is better)
-         - Fiber content (higher is better)
-         - Sugar content (lower is better)
-         - Sodium content (lower is better)
-         - Overall macronutrient balance
-      4. Include specific warnings for:
-         - High sodium (>500mg)
-         - High sugar (>20g)
-         - High fat (>20g)
-         - Low fiber (<3g)`;
+      }`;
 
       try {
         const completion = await openai.chat.completions.create({
-          model: "gpt-4o-2024-11-20",
+          model: "gpt-4",
           messages: [
             { 
               role: "system", 
@@ -405,78 +261,129 @@ export function registerRoutes(app: Express) {
         if (nutritionInfo.carbs > 50) warnings.push("High carbohydrate content - monitor blood sugar impact");
         if (allergens.length > 0) warnings.push("Contains common allergens - check ingredients carefully");
 
-        const recommendations = [];
-        // Enhanced nutritional recommendations
-        if (healthScore < 5) {
-          recommendations.push("Consider healthier alternatives with better nutritional balance");
-          if (nutritionInfo.protein < 10) {
-            recommendations.push("May need to supplement with protein-rich foods");
-          }
-          if (nutritionInfo.fiber < 3) {
-            recommendations.push("Low in fiber - consider adding fiber-rich foods to your meal");
-          }
-        } else if (healthScore > 7) {
-          recommendations.push("Good nutritional profile - suitable as part of a balanced diet");
-          if (nutritionInfo.fiber > 5) {
-            recommendations.push("Good source of fiber - helps with digestion and satiety");
-          }
-          if (nutritionInfo.protein > 15) {
-            recommendations.push("High in protein - good for muscle maintenance and recovery");
-          }
-        }
-
-        // Sodium recommendations
-        if (nutritionInfo.sodium > 500) {
-          recommendations.push("High sodium content - monitor daily sodium intake");
-          if (nutritionInfo.sodium > 1000) {
-            warnings.push("Very high sodium content - may not be suitable for those with hypertension");
-          }
-        }
-
-        // Sugar recommendations
-        if (nutritionInfo.sugar > 20) {
-          recommendations.push("High sugar content - consider limiting portion size");
-          warnings.push("High sugar content - may impact blood sugar levels");
-        }
-
-        if (allergens.length > 0) {
-          recommendations.push("Consult healthcare provider if allergic to any listed ingredients");
-        }
-
-        // Validate and normalize nutritional values
-        const normalizeValue = (value: number, min = 0, max = Infinity) => 
-          Math.max(min, Math.min(max, isNaN(value) ? 0 : value));
-
-        const validatedNutrition = {
-          calories: normalizeValue(nutritionInfo.calories, 0, 5000),
-          protein: normalizeValue(nutritionInfo.protein, 0, 200),
-          carbs: normalizeValue(nutritionInfo.carbs, 0, 500),
-          fat: normalizeValue(nutritionInfo.fat, 0, 200),
-          fiber: normalizeValue(nutritionInfo.fiber, 0, 100),
-          sugar: normalizeValue(nutritionInfo.sugar, 0, 200),
-          sodium: normalizeValue(nutritionInfo.sodium, 0, 5000),
-          servingSize: nutritionInfo.servingSize || 'Not specified'
-        };
-
-        // Using the previously calculated healthScore
-
-        const fallbackAnalysis = {
-          summary: `Product analysis based on ${ingredients.length} identified ingredients. Contains ${validatedNutrition.calories} calories per serving.`,
+        res.json({
+          summary: "Analysis based on extracted text",
           nutritionalAnalysis: {
             score: healthScore,
-            breakdown: validatedNutrition
+            breakdown: nutritionInfo
           },
           ingredients,
           allergens,
           warnings,
-          recommendations
-        };
-
-        res.json(fallbackAnalysis);
+          recommendations: [
+            "Please consult with a healthcare professional for detailed advice",
+            "Consider portion sizes based on your dietary needs",
+            "Monitor your reaction if you have known allergies"
+          ]
+        });
       }
     } catch (error) {
       console.error('Analysis Error:', error);
       res.status(400).json({ error: "Analysis failed" });
+    }
+  });
+
+  // Medication routes
+  app.post("/api/medications", async (req, res) => {
+    try {
+      const medication = await db.insert(medications).values(req.body).returning();
+      res.json(medication[0]);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to add medication" });
+    }
+  });
+
+  app.get("/api/medications/:userId", async (req, res) => {
+    try {
+      const userMeds = await db.query.medications.findMany({
+        where: eq(medications.userId, parseInt(req.params.userId)),
+        orderBy: (medications, { desc }) => [desc(medications.createdAt)]
+      });
+      res.json(userMeds);
+    } catch (error) {
+      res.status(404).json({ error: "Medications not found" });
+    }
+  });
+
+  // Medication interaction check endpoint
+  app.post("/api/medication-interactions/check", async (req, res) => {
+    try {
+      const { medicationId, otherMedicationIds } = req.body;
+      
+      // First, check for existing interactions in the database
+      const interactions = await db.query.medicationInteractions.findMany({
+        where: and(
+          eq(medicationInteractions.medicationId, medicationId),
+          inArray(medicationInteractions.interactingMedicationId, otherMedicationIds)
+        )
+      });
+
+      if (interactions.length === 0) {
+        // If no known interactions found, use OpenAI to analyze potential interactions
+        const medication = await db.query.medications.findFirst({
+          where: eq(medications.id, medicationId)
+        });
+
+        const otherMedications = await db.query.medications.findMany({
+          where: inArray(medications.id, otherMedicationIds)
+        });
+
+        const OpenAI = (await import('openai')).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+        const prompt = `Analyze potential interactions between these medications:
+        Primary Medication: ${medication?.name} (${medication?.dosage})
+        Other Medications: ${otherMedications.map(m => `${m.name} (${m.dosage})`).join(', ')}
+
+        Provide analysis in JSON format:
+        {
+          "interactions": [{
+            "medications": ["med1", "med2"],
+            "severity": "mild|moderate|severe",
+            "description": "Description of interaction",
+            "recommendations": ["recommendation1", "recommendation2"]
+          }]
+        }`;
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            {
+              role: "system",
+              content: "You are a medication interaction analysis expert. Analyze the potential interactions between medications and provide detailed information in the specified JSON format."
+            },
+            { role: "user", content: prompt }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.7
+        });
+
+        const analysis = JSON.parse(completion.choices[0].message.content || "{}");
+        
+        // Store the analyzed interactions in the database
+        for (const interaction of analysis.interactions) {
+          const interactingMed = otherMedications.find(m => 
+            m.name.toLowerCase() === interaction.medications[1].toLowerCase()
+          );
+          
+          if (interactingMed) {
+            await db.insert(medicationInteractions).values({
+              medicationId,
+              interactingMedicationId: interactingMed.id,
+              severity: interaction.severity,
+              description: interaction.description,
+              recommendations: interaction.recommendations
+            });
+          }
+        }
+
+        res.json(analysis);
+      } else {
+        res.json({ interactions });
+      }
+    } catch (error) {
+      console.error('Medication Interaction Check Error:', error);
+      res.status(400).json({ error: "Failed to check medication interactions" });
     }
   });
 }

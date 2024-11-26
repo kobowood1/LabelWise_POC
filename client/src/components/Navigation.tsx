@@ -16,7 +16,7 @@ export default function Navigation() {
             <NavigationMenuItem>
               <Link href="/">
                 <Button variant="ghost" className="text-xl font-bold">
-                  LabelSense
+                  LabelWise
                 </Button>
               </Link>
             </NavigationMenuItem>
