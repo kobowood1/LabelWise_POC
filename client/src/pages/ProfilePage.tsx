@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { updatePreferences } from "../lib/api";
+import MedicationInteractions from "../components/MedicationInteractions";
 
 export default function ProfilePage() {
   const { toast } = useToast();
@@ -136,6 +137,10 @@ export default function ProfilePage() {
           </Button>
         </form>
       </Form>
+
+      <div className="mt-8">
+        <MedicationInteractions />
+      </div>
     </div>
   );
 }

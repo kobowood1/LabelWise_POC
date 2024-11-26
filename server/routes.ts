@@ -198,7 +198,7 @@ export function registerRoutes(app: Express) {
 
       try {
         const completion = await openai.chat.completions.create({
-          model: "gpt-4",
+          model: "gpt-3.5-turbo",
           messages: [
             { 
               role: "system", 
@@ -305,6 +305,23 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // Test endpoint to create sample medications
+  app.post("/api/medications/test", async (req, res) => {
+    try {
+      const testMeds = [
+        { name: "Aspirin", dosage: "81mg", frequency: "daily", userId: 1 },
+        { name: "Lisinopril", dosage: "10mg", frequency: "daily", userId: 1 },
+        { name: "Metformin", dosage: "500mg", frequency: "twice daily", userId: 1 }
+      ];
+      const results = await Promise.all(
+        testMeds.map(med => db.insert(medications).values(med).returning())
+      );
+      res.json(results);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create test medications" });
+    }
+  });
+
   // Medication interaction check endpoint
   app.post("/api/medication-interactions/check", async (req, res) => {
     try {
@@ -346,7 +363,7 @@ export function registerRoutes(app: Express) {
         }`;
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-4",
+          model: "gpt-3.5-turbo",
           messages: [
             {
               role: "system",
