@@ -63,9 +63,15 @@ export default function AnalysisResults({ analysis, userAllergies = [] }: Analys
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span>Calories</span>
-                <span>{analysis.nutritionInfo.calories}kcal</span>
+                <span>{analysis.nutritionInfo.calories || 0}kcal</span>
               </div>
-              <Progress value={analysis.nutritionInfo.calories / 20} className="h-2" />
+              <Progress
+                value={(analysis.nutritionInfo.calories || 0) / 2000 * 100}
+                className="h-2"
+              />
+              <span className="text-xs text-muted-foreground">
+                {Math.round(((analysis.nutritionInfo.calories || 0) / 2000) * 100)}% of daily value
+              </span>
             </div>
             {analysis.nutritionInfo.servingSize && (
               <div className="text-sm text-muted-foreground">
@@ -75,48 +81,26 @@ export default function AnalysisResults({ analysis, userAllergies = [] }: Analys
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <span className="text-sm font-medium">Protein</span>
-              <Progress value={analysis.nutritionInfo.protein * 5} className="h-2" />
-              <span className="text-xs text-muted-foreground">
-                {analysis.nutritionInfo.protein}g
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-medium">Carbs</span>
-              <Progress value={analysis.nutritionInfo.carbs * 2} className="h-2" />
-              <span className="text-xs text-muted-foreground">
-                {analysis.nutritionInfo.carbs}g
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-medium">Fat</span>
-              <Progress value={analysis.nutritionInfo.fat * 3} className="h-2" />
-              <span className="text-xs text-muted-foreground">
-                {analysis.nutritionInfo.fat}g
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-medium">Sugar</span>
-              <Progress value={analysis.nutritionInfo.sugar * 5} className="h-2" />
-              <span className="text-xs text-muted-foreground">
-                {analysis.nutritionInfo.sugar}g
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-medium">Fiber</span>
-              <Progress value={analysis.nutritionInfo.fiber * 10} className="h-2" />
-              <span className="text-xs text-muted-foreground">
-                {analysis.nutritionInfo.fiber}g
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-medium">Sodium</span>
-              <Progress value={analysis.nutritionInfo.sodium / 20} className="h-2" />
-              <span className="text-xs text-muted-foreground">
-                {analysis.nutritionInfo.sodium}mg
-              </span>
-            </div>
+            {[
+              { label: "Protein", value: analysis.nutritionInfo.protein || 0, unit: "g", max: 50 },
+              { label: "Carbs", value: analysis.nutritionInfo.carbs || 0, unit: "g", max: 300 },
+              { label: "Fat", value: analysis.nutritionInfo.fat || 0, unit: "g", max: 65 },
+              { label: "Sugar", value: analysis.nutritionInfo.sugar || 0, unit: "g", max: 50 },
+              { label: "Fiber", value: analysis.nutritionInfo.fiber || 0, unit: "g", max: 25 },
+              { label: "Sodium", value: analysis.nutritionInfo.sodium || 0, unit: "mg", max: 2300 }
+            ].map(({ label, value, unit, max }) => (
+              <div key={label} className="space-y-1">
+                <span className="text-sm font-medium">{label}</span>
+                <Progress
+                  value={(value / max) * 100}
+                  className={`h-2 ${value > max * 0.8 ? 'bg-red-200' : ''}`}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{value}{unit}</span>
+                  <span>{Math.round((value / max) * 100)}%</span>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

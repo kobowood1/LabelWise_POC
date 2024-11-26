@@ -204,30 +204,45 @@ export function registerRoutes(app: Express) {
       const OpenAI = (await import('openai')).default;
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-      const prompt = `Analyze this food/medicine label text and provide a detailed breakdown:
+      const prompt = `Analyze this food/medicine label text and provide a detailed nutritional breakdown:
       "${text}"
       
-      Provide the analysis in the following JSON format:
+      Provide the analysis in the following JSON format, ensuring all nutritional values are numbers (not strings) and properly scaled to their respective units:
       {
         "summary": "Brief overview of the product",
         "nutritionalAnalysis": {
-          "score": 5,
+          "score": "number 1-10 indicating overall nutritional value",
           "breakdown": {
-            "calories": 0,
-            "protein": 0,
-            "carbs": 0,
-            "fat": 0,
-            "fiber": 0,
-            "sugar": 0,
-            "sodium": 0,
-            "servingSize": ""
+            "calories": "number (kcal)",
+            "protein": "number (grams)",
+            "carbs": "number (grams)",
+            "fat": "number (grams)",
+            "fiber": "number (grams)",
+            "sugar": "number (grams)",
+            "sodium": "number (milligrams)",
+            "servingSize": "string (e.g., '1 cup', '100g')"
           }
         },
-        "ingredients": [],
-        "allergens": [],
-        "warnings": [],
-        "recommendations": []
-      }`;
+        "ingredients": ["array of ingredient strings"],
+        "allergens": ["array of allergen strings"],
+        "warnings": ["array of warning strings"],
+        "recommendations": ["array of recommendation strings"]
+      }
+      
+      Important guidelines:
+      1. All numeric values must be numbers, not strings
+      2. Ensure all nutritional values are present and properly scaled
+      3. Score should be calculated based on:
+         - Protein content (higher is better)
+         - Fiber content (higher is better)
+         - Sugar content (lower is better)
+         - Sodium content (lower is better)
+         - Overall macronutrient balance
+      4. Include specific warnings for:
+         - High sodium (>500mg)
+         - High sugar (>20g)
+         - High fat (>20g)
+         - Low fiber (<3g)`;
 
       try {
         const completion = await openai.chat.completions.create({
@@ -332,16 +347,28 @@ export function registerRoutes(app: Express) {
           recommendations.push("Consult healthcare provider if allergic to any listed ingredients");
         }
 
+        // Validate and normalize nutritional values
+        const normalizeValue = (value: number, min = 0, max = Infinity) => 
+          Math.max(min, Math.min(max, isNaN(value) ? 0 : value));
+
+        const validatedNutrition = {
+          calories: normalizeValue(nutritionInfo.calories, 0, 5000),
+          protein: normalizeValue(nutritionInfo.protein, 0, 200),
+          carbs: normalizeValue(nutritionInfo.carbs, 0, 500),
+          fat: normalizeValue(nutritionInfo.fat, 0, 200),
+          fiber: normalizeValue(nutritionInfo.fiber, 0, 100),
+          sugar: normalizeValue(nutritionInfo.sugar, 0, 200),
+          sodium: normalizeValue(nutritionInfo.sodium, 0, 5000),
+          servingSize: nutritionInfo.servingSize || 'Not specified'
+        };
+
+        // Using the previously calculated healthScore
+
         const fallbackAnalysis = {
-          summary: `Product analysis based on ${ingredients.length} identified ingredients. Contains ${nutritionInfo.calories} calories per serving.`,
+          summary: `Product analysis based on ${ingredients.length} identified ingredients. Contains ${validatedNutrition.calories} calories per serving.`,
           nutritionalAnalysis: {
             score: healthScore,
-            breakdown: {
-              calories: nutritionInfo.calories,
-              protein: nutritionInfo.protein,
-              carbs: nutritionInfo.carbs,
-              fat: nutritionInfo.fat
-            }
+            breakdown: validatedNutrition
           },
           ingredients,
           allergens,
