@@ -29,10 +29,54 @@ export function registerRoutes(app: Express) {
   // Preferences routes
   app.post("/api/preferences", async (req, res) => {
     try {
-      const preferences = await db.insert(userPreferences).values(req.body).returning();
+      const preferencesSchema = z.object({
+        userId: z.number(),
+        allergies: z.array(z.string()).default([]),
+        dietaryRestrictions: z.array(z.string()).default([]),
+        healthConditions: z.array(z.string()).default([])
+      });
+
+      const validatedData = preferencesSchema.parse(req.body);
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, validatedData.userId)
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const preferences = await db
+        .insert(userPreferences)
+        .values(validatedData)
+        .onConflictDoUpdate({
+          target: userPreferences.userId,
+          set: {
+            allergies: validatedData.allergies,
+            dietaryRestrictions: validatedData.dietaryRestrictions,
+            healthConditions: validatedData.healthConditions,
+            updatedAt: new Date()
+          }
+        })
+        .returning();
+
       res.json(preferences[0]);
     } catch (error) {
-      res.status(400).json({ error: "Failed to save preferences" });
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Preferences Error:', error);
+      }
+
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          error: "Invalid preferences data",
+          details: error.errors 
+        });
+      }
+
+      res.status(400).json({ 
+        error: "Failed to save preferences",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
@@ -87,19 +131,16 @@ export function registerRoutes(app: Express) {
         }
 
         try {
-          // Image preprocessing
           const processedImageBuffer = await sharp(req.file.buffer)
-            // Convert to grayscale
             .grayscale()
-            // Enhance contrast
             .normalize()
-            // Reduce noise
-            .median(1)
-            // Ensure consistent format
+            .linear(1.5, -0.2)
+            .median(2)
+            .sharpen({ sigma: 1.5 })
+            .threshold(128)
             .png()
             .toBuffer();
 
-          // Perform OCR with confidence threshold
           const result = await Tesseract.recognize(processedImageBuffer, 'eng', {
             logger: m => {
               if (process.env.NODE_ENV === 'development') {
@@ -108,8 +149,7 @@ export function registerRoutes(app: Express) {
             }
           });
 
-          // Filter out low confidence words and clean text
-          const confidenceThreshold = 60; // Minimum confidence percentage
+          const confidenceThreshold = 75;
           const filteredWords = result.data.words
             .filter(word => word.confidence > confidenceThreshold)
             .map(word => ({
@@ -118,15 +158,15 @@ export function registerRoutes(app: Express) {
               box: word.bbox
             }));
 
-          // Clean and normalize extracted text
           const cleanText = filteredWords
             .map(word => word.text)
             .join(' ')
-            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-            .replace(/[^\w\s.,:%/-]/g, '') // Remove special characters except common ones
+            .replace(/\s+/g, ' ')
+            .replace(/[^\w\s.,:%()/-]/g, '')
+            .replace(/\b(\d+)\s*([a-zA-Z]+)\b/g, '$1$2')
+            .replace(/\b(ingredients|contains|nutrition facts)\b/gi, '\n$1\n')
             .trim();
 
-          // Calculate overall confidence
           const averageConfidence = filteredWords.length > 0
             ? filteredWords.reduce((sum, word) => sum + word.confidence, 0) / filteredWords.length
             : 0;
@@ -135,7 +175,7 @@ export function registerRoutes(app: Express) {
             text: cleanText,
             confidence: averageConfidence,
             boundingBoxes: filteredWords,
-            raw_text: result.data.text, // Include original text for debugging
+            raw_text: result.data.text,
             preprocessing: {
               words_filtered: result.data.words.length - filteredWords.length,
               total_words: result.data.words.length
@@ -161,33 +201,33 @@ export function registerRoutes(app: Express) {
         return res.status(400).json({ error: "No text provided for analysis" });
       }
 
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      const prompt = `Analyze this food/medicine label text and provide a detailed breakdown:
+      "${text}"
+      
+      Provide the analysis in the following JSON format:
+      {
+        "summary": "Brief overview of the product",
+        "nutritionalAnalysis": {
+          "score": 5,
+          "breakdown": {
+            "calories": 0,
+            "protein": 0,
+            "carbs": 0,
+            "fat": 0
+          }
+        },
+        "ingredients": [],
+        "allergens": [],
+        "warnings": [],
+        "recommendations": []
+      }`;
+
       try {
-        const OpenAI = (await import('openai')).default;
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-        const prompt = `Analyze this food/medicine label text and provide a detailed breakdown:
-        "${text}"
-        
-        Provide the analysis in the following JSON format:
-        {
-          "summary": "Brief overview of the product",
-          "nutritionalAnalysis": {
-            "score": 5,
-            "breakdown": {
-              "calories": 0,
-              "protein": 0,
-              "carbs": 0,
-              "fat": 0
-            }
-          },
-          "ingredients": [],
-          "allergens": [],
-          "warnings": [],
-          "recommendations": []
-        }`;
-
         const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo-1106",
+          model: "gpt-3.5-turbo",
           messages: [
             { 
               role: "system", 
@@ -195,8 +235,14 @@ export function registerRoutes(app: Express) {
             },
             { role: "user", content: prompt }
           ],
-          response_format: { type: "json_object" }
+          response_format: { type: "json_object" },
+          temperature: 0.7,
+          max_tokens: 1000
         });
+
+        if (!completion.choices || completion.choices.length === 0) {
+          throw new Error("Invalid response from OpenAI API");
+        }
 
         const content = completion.choices[0].message.content;
         if (!content) {
@@ -208,24 +254,19 @@ export function registerRoutes(app: Express) {
       } catch (llmError) {
         console.error('LLM Analysis Error:', llmError);
         
-        // Enhanced fallback analysis
-        const { extractNutritionalInfo } = await import('../client/src/lib/ocr.js');
-        const { detectAllergens } = await import('../client/src/lib/ocr.js');
+        const { extractNutritionalInfo, detectAllergens } = await import('../client/src/lib/ocr.js');
 
-        // Extract nutritional information using enhanced regex
         const nutritionInfo = extractNutritionalInfo(text);
 
-        // Extract ingredients with better pattern matching
         const ingredientsPattern = /ingredients[\s:\n]+([^.]+?)(?=\.|$)/i;
         const ingredientsMatch = text.match(ingredientsPattern);
-        const ingredients: string[] = ingredientsMatch 
+        const ingredients = ingredientsMatch 
           ? ingredientsMatch[1]
               .split(/,|\n/)
-              .map((i: string) => i.trim())
-              .filter((i: string) => i.length > 0)
+              .map(i => i.trim())
+              .filter(i => i.length > 0)
           : [];
 
-        // Enhanced allergen detection
         const commonAllergens = [
           'peanuts', 'dairy', 'milk', 'gluten', 'wheat', 
           'shellfish', 'soy', 'eggs', 'tree nuts', 'fish', 
@@ -233,26 +274,23 @@ export function registerRoutes(app: Express) {
         ];
         const allergens = detectAllergens(ingredients, commonAllergens);
 
-        // Improved health score calculation
-        let healthScore = 5; // Default neutral score
+        let healthScore = 5;
         if (nutritionInfo.protein > 0 || nutritionInfo.carbs > 0 || nutritionInfo.fat > 0) {
           healthScore = Math.min(10, Math.max(1, Math.round(
-            (nutritionInfo.protein * 2 + // Protein is good
-             (nutritionInfo.carbs < 50 ? 2 : -1) + // Moderate carbs are okay
-             (nutritionInfo.fat < 15 ? 1 : -2) + // Lower fat is better
-             5) // Base score
+            (nutritionInfo.protein * 2 +
+             (nutritionInfo.carbs < 50 ? 2 : -1) +
+             (nutritionInfo.fat < 15 ? 1 : -2) +
+             5)
           )));
         }
 
-        // Enhanced warnings based on nutritional content
-        const warnings: string[] = [];
+        const warnings = [];
         if (nutritionInfo.calories > 300) warnings.push("High calorie content - consider portion control");
         if (nutritionInfo.fat > 20) warnings.push("High fat content - may affect cardiovascular health");
         if (nutritionInfo.carbs > 50) warnings.push("High carbohydrate content - monitor blood sugar impact");
         if (allergens.length > 0) warnings.push("Contains common allergens - check ingredients carefully");
 
-        // Enhanced recommendations
-        const recommendations: string[] = [];
+        const recommendations = [];
         if (healthScore < 5) {
           recommendations.push("Consider healthier alternatives with better nutritional balance");
           if (nutritionInfo.protein < 10) {
