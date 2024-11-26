@@ -106,49 +106,111 @@ export function registerRoutes(app: Express) {
   // LLM analysis endpoint
   app.post("/api/analyze", async (req, res) => {
     try {
-      const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       const { text } = req.body;
 
       if (!text) {
         return res.status(400).json({ error: "No text provided for analysis" });
       }
 
-      const prompt = `Analyze this food/medicine label text and provide a detailed breakdown:
-      "${text}"
-      
-      Provide the analysis in the following JSON format:
-      {
-        "summary": "Brief overview of the product",
-        "nutritionalAnalysis": {
-          "score": "health score out of 10",
-          "breakdown": {
-            "calories": "number",
-            "protein": "grams",
-            "carbs": "grams",
-            "fat": "grams"
-          }
-        },
-        "ingredients": ["list of ingredients"],
-        "allergens": ["potential allergens"],
-        "warnings": ["health warnings"],
-        "recommendations": ["health recommendations"]
-      }`;
+      try {
+        // First attempt: Try GPT-4
+        const OpenAI = (await import('openai')).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { 
-            role: "system", 
-            content: "You are a medical and nutritional analysis expert. Analyze the given label text and provide detailed information." 
+        const prompt = `Analyze this food/medicine label text and provide a detailed breakdown:
+        "${text}"
+        
+        Provide the analysis in the following JSON format:
+        {
+          "summary": "Brief overview of the product",
+          "nutritionalAnalysis": {
+            "score": "health score out of 10",
+            "breakdown": {
+              "calories": "number",
+              "protein": "grams",
+              "carbs": "grams",
+              "fat": "grams"
+            }
           },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_object" }
-      });
+          "ingredients": ["list of ingredients"],
+          "allergens": ["potential allergens"],
+          "warnings": ["health warnings"],
+          "recommendations": ["health recommendations"]
+        }`;
 
-      const analysis = JSON.parse(completion.choices[0].message.content);
-      res.json(analysis);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            { 
+              role: "system", 
+              content: "You are a medical and nutritional analysis expert. Analyze the given label text and provide detailed information." 
+            },
+            { role: "user", content: prompt }
+          ],
+          response_format: { type: "json_object" }
+        });
+
+        const analysis = JSON.parse(completion.choices[0].message.content);
+        res.json(analysis);
+      } catch (llmError) {
+        console.error('LLM Analysis Error:', llmError);
+        
+        // Fallback: Use regex-based analysis
+        const { extractNutritionalInfo } = await import('../client/src/lib/ocr.js');
+        const { detectAllergens } = await import('../client/src/lib/ocr.js');
+
+        // Extract nutritional information using regex
+        const nutritionInfo = extractNutritionalInfo(text);
+
+        // Extract ingredients using regex
+        const ingredientsMatch = text.match(/ingredients:(.+?)(\.|$)/i);
+        const ingredients = ingredientsMatch 
+          ? ingredientsMatch[1].split(',').map(i => i.trim())
+          : [];
+
+        // Detect potential allergens
+        const commonAllergens = ['peanuts', 'dairy', 'gluten', 'shellfish', 'soy', 'eggs', 'tree nuts'];
+        const allergens = detectAllergens(ingredients, commonAllergens);
+
+        // Calculate a basic health score
+        const healthScore = Math.min(10, Math.max(1, Math.round(
+          (nutritionInfo.protein * 2 - nutritionInfo.fat * 0.5) / 10 + 5
+        )));
+
+        // Generate basic warnings based on nutritional content
+        const warnings = [];
+        if (nutritionInfo.calories > 300) warnings.push("High calorie content");
+        if (nutritionInfo.fat > 20) warnings.push("High fat content");
+        if (nutritionInfo.carbs > 50) warnings.push("High carbohydrate content");
+
+        // Generate basic recommendations
+        const recommendations = [];
+        if (healthScore < 5) {
+          recommendations.push("Consider healthier alternatives");
+        }
+        if (allergens.length > 0) {
+          recommendations.push("Check with healthcare provider if allergic to any ingredients");
+        }
+
+        const fallbackAnalysis = {
+          summary: `Product contains ${ingredients.length} ingredients with ${nutritionInfo.calories} calories`,
+          nutritionalAnalysis: {
+            score: healthScore,
+            breakdown: {
+              calories: nutritionInfo.calories,
+              protein: nutritionInfo.protein,
+              carbs: nutritionInfo.carbs,
+              fat: nutritionInfo.fat
+            }
+          },
+          ingredients,
+          allergens,
+          warnings,
+          recommendations
+        };
+
+        res.json(fallbackAnalysis);
+      }
     } catch (error) {
       console.error('Analysis Error:', error);
       res.status(400).json({ error: "Analysis failed" });
