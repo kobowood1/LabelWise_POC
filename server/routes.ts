@@ -74,6 +74,7 @@ export function registerRoutes(app: Express) {
     try {
       const multer = (await import('multer')).default;
       const Tesseract = (await import('tesseract.js')).default;
+      const sharp = (await import('sharp')).default;
       const upload = multer({ storage: multer.memoryStorage() });
 
       upload.single('image')(req, res, async (err) => {
@@ -85,17 +86,65 @@ export function registerRoutes(app: Express) {
           return res.status(400).json({ error: "No image file provided" });
         }
 
-        const image = req.file.buffer;
-        const result = await Tesseract.recognize(image, 'eng');
-        
-        res.json({
-          text: result.data.text,
-          confidence: result.data.confidence,
-          boundingBoxes: result.data.words.map(word => ({
-            text: word.text,
-            box: word.bbox
-          }))
-        });
+        try {
+          // Image preprocessing
+          const processedImageBuffer = await sharp(req.file.buffer)
+            // Convert to grayscale
+            .grayscale()
+            // Enhance contrast
+            .normalize()
+            // Reduce noise
+            .median(1)
+            // Ensure consistent format
+            .png()
+            .toBuffer();
+
+          // Perform OCR with confidence threshold
+          const result = await Tesseract.recognize(processedImageBuffer, 'eng', {
+            logger: m => {
+              if (process.env.NODE_ENV === 'development') {
+                console.log(m);
+              }
+            }
+          });
+
+          // Filter out low confidence words and clean text
+          const confidenceThreshold = 60; // Minimum confidence percentage
+          const filteredWords = result.data.words
+            .filter(word => word.confidence > confidenceThreshold)
+            .map(word => ({
+              text: word.text.trim(),
+              confidence: word.confidence,
+              box: word.bbox
+            }));
+
+          // Clean and normalize extracted text
+          const cleanText = filteredWords
+            .map(word => word.text)
+            .join(' ')
+            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+            .replace(/[^\w\s.,:%/-]/g, '') // Remove special characters except common ones
+            .trim();
+
+          // Calculate overall confidence
+          const averageConfidence = filteredWords.length > 0
+            ? filteredWords.reduce((sum, word) => sum + word.confidence, 0) / filteredWords.length
+            : 0;
+
+          res.json({
+            text: cleanText,
+            confidence: averageConfidence,
+            boundingBoxes: filteredWords,
+            raw_text: result.data.text, // Include original text for debugging
+            preprocessing: {
+              words_filtered: result.data.words.length - filteredWords.length,
+              total_words: result.data.words.length
+            }
+          });
+        } catch (processError) {
+          console.error('Image Processing Error:', processError);
+          res.status(400).json({ error: "Image processing failed" });
+        }
       });
     } catch (error) {
       console.error('OCR Error:', error);
@@ -138,7 +187,7 @@ export function registerRoutes(app: Express) {
         }`;
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
+          model: "gpt-3.5-turbo-1106",
           messages: [
             { 
               role: "system", 

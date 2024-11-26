@@ -30,30 +30,66 @@ export async function performOCR(image: File): Promise<OCRResult> {
   }
 }
 
+export function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\n\r]+/g, ' ')
+    .replace(/[^\w\s.,:%/-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function extractNumber(text: string, pattern: RegExp): number {
+  const match = text.match(pattern);
+  if (!match) return 0;
+  const value = parseFloat(match[1]);
+  return isNaN(value) ? 0 : value;
+}
+
 export function extractNutritionalInfo(ocrText: string) {
-  // Define regex patterns for common nutritional information
+  // Normalize text for better pattern matching
+  const normalizedText = normalizeText(ocrText);
+  
+  // Enhanced regex patterns for nutritional information
   const patterns = {
-    calories: /calories[:\s]+(\d+(?:\.\d+)?)/i,
-    protein: /protein[:\s]+(\d+(?:\.\d+)?)\s*g/i,
-    carbs: /(?:carbohydrates?|carbs)[:\s]+(\d+(?:\.\d+)?)\s*g/i,
-    fat: /(?:total\s+)?fat[:\s]+(\d+(?:\.\d+)?)\s*g/i,
-    sugar: /sugars?[:\s]+(\d+(?:\.\d+)?)\s*g/i,
-    fiber: /(?:dietary\s+)?fiber[:\s]+(\d+(?:\.\d+)?)\s*g/i,
-    sodium: /sodium[:\s]+(\d+(?:\.\d+)?)\s*mg/i,
-    ingredients: /ingredients[\s:\n]+([^.]+)(?:\.|$)/i,
-    servingSize: /serving\s+size[:\s]+([^.]+)(?:\.|$)/i,
+    calories: /(?:calories|energy)[:\s]+(\d+(?:\.\d+)?)\s*(?:kcal)?/i,
+    protein: /(?:protein|proteins)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    carbs: /(?:carbohydrates?|carbs|total carbs)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    fat: /(?:total fat|fat content|fats?)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    sugar: /(?:sugars?|total sugar)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    fiber: /(?:dietary fiber|fiber|fibre)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    sodium: /(?:sodium|salt)[:\s]+(\d+(?:\.\d+)?)\s*(?:mg|milligrams|g|grams)/i,
+    ingredients: /ingredients[:\s]+([^.]+?)(?=(?:\.|nutrition|contains|allergen|$))/i,
+    servingSize: /serving\s+size[:\s]+([^.]+?)(?=(?:\.|per|contains|$))/i,
   };
 
-  // Extract values using regex
-  return {
-    calories: parseInt(ocrText.match(patterns.calories)?.[1] || '0'),
-    protein: parseInt(ocrText.match(patterns.protein)?.[1] || '0'),
-    carbs: parseInt(ocrText.match(patterns.carbs)?.[1] || '0'),
-    fat: parseInt(ocrText.match(patterns.fat)?.[1] || '0'),
-    ingredients: ocrText.match(patterns.ingredients)?.[1]
-      ?.split(',')
-      .map(i => i.trim()) || [],
+  // Extract and parse ingredients with better handling
+  const ingredientsMatch = normalizedText.match(patterns.ingredients);
+  const ingredients = ingredientsMatch
+    ? ingredientsMatch[1]
+        .split(/,|;|\(|\)/)
+        .map(i => i.trim())
+        .filter(i => 
+          i.length > 0 && 
+          !i.match(/^\d+$/) && // Filter out standalone numbers
+          !i.match(/^(?:and|or|contains|may contain)$/i) // Filter out connecting words
+        )
+    : [];
+
+  // Extract numerical values
+  const nutritionData = {
+    calories: extractNumber(normalizedText, patterns.calories),
+    protein: extractNumber(normalizedText, patterns.protein),
+    carbs: extractNumber(normalizedText, patterns.carbs),
+    fat: extractNumber(normalizedText, patterns.fat),
+    sugar: extractNumber(normalizedText, patterns.sugar),
+    fiber: extractNumber(normalizedText, patterns.fiber),
+    sodium: extractNumber(normalizedText, patterns.sodium),
+    ingredients: ingredients,
+    servingSize: normalizedText.match(patterns.servingSize)?.[1]?.trim() || ''
   };
+
+  return nutritionData;
 }
 
 export function detectAllergens(ingredients: string[], userAllergies: string[]) {
