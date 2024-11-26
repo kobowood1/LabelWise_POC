@@ -194,6 +194,102 @@ export function registerRoutes(app: Express) {
 
   // LLM analysis endpoint
   app.post("/api/analyze", async (req, res) => {
+  // Medication routes
+  app.post("/api/medications", async (req, res) => {
+    try {
+      const medication = await db.insert(medications).values(req.body).returning();
+      res.json(medication[0]);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to add medication" });
+    }
+  });
+
+  app.get("/api/medications/:userId", async (req, res) => {
+    try {
+      const userMeds = await db.query.medications.findMany({
+        where: eq(medications.userId, parseInt(req.params.userId)),
+        orderBy: (medications, { desc }) => [desc(medications.createdAt)]
+      });
+      res.json(userMeds);
+    } catch (error) {
+      res.status(404).json({ error: "Medications not found" });
+    }
+  });
+
+  app.post("/api/medication-interactions/check", async (req, res) => {
+    try {
+      const { medicationId, otherMedicationIds } = req.body;
+      
+      const interactions = await db.query.medicationInteractions.findMany({
+        where: (fields, { and, or, eq, inArray }) => 
+          and(
+            eq(fields.medicationId, medicationId),
+            inArray(fields.interactingMedicationId, otherMedicationIds)
+          )
+      });
+
+      if (interactions.length === 0) {
+        // If no known interactions found, use OpenAI to analyze potential interactions
+        const medication = await db.query.medications.findFirst({
+          where: eq(medications.id, medicationId)
+        });
+
+        const otherMedications = await db.query.medications.findMany({
+          where: (fields, { inArray }) => inArray(fields.id, otherMedicationIds)
+        });
+
+        const OpenAI = (await import('openai')).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+        const prompt = `Analyze potential interactions between these medications:
+        Primary Medication: ${medication?.name} (${medication?.dosage})
+        Other Medications: ${otherMedications.map(m => `${m.name} (${m.dosage})`).join(', ')}
+
+        Provide analysis in JSON format:
+        {
+          "interactions": [{
+            "medications": ["med1", "med2"],
+            "severity": "mild|moderate|severe",
+            "description": "Description of interaction",
+            "recommendations": ["recommendation1", "recommendation2"]
+          }]
+        }`;
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            {
+              role: "system",
+              content: "You are a medication interaction analysis expert. Analyze the potential interactions between medications and provide detailed information in the specified JSON format."
+            },
+            { role: "user", content: prompt }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.7
+        });
+
+        const analysis = JSON.parse(completion.choices[0].message.content || "{}");
+        
+        // Store the analyzed interactions in the database
+        for (const interaction of analysis.interactions) {
+          await db.insert(medicationInteractions).values({
+            medicationId,
+            interactingMedicationId: otherMedications.find(m => m.name === interaction.medications[1])?.id || 0,
+            severity: interaction.severity,
+            description: interaction.description,
+            recommendations: interaction.recommendations
+          });
+        }
+
+        res.json(analysis);
+      } else {
+        res.json({ interactions });
+      }
+    } catch (error) {
+      console.error('Medication Interaction Check Error:', error);
+      res.status(400).json({ error: "Failed to check medication interactions" });
+    }
+  });
     try {
       const { text } = req.body;
 
@@ -282,8 +378,8 @@ export function registerRoutes(app: Express) {
         const ingredients = ingredientsMatch 
           ? ingredientsMatch[1]
               .split(/,|\n/)
-              .map(i => i.trim())
-              .filter(i => i.length > 0)
+              .map((i: string) => i.trim())
+              .filter((i: string) => i.length > 0)
           : [];
 
         const commonAllergens = [
