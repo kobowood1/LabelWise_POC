@@ -33,11 +33,15 @@ export async function performOCR(image: File): Promise<OCRResult> {
 export function extractNutritionalInfo(ocrText: string) {
   // Define regex patterns for common nutritional information
   const patterns = {
-    calories: /calories[:\s]+(\d+)/i,
-    protein: /protein[:\s]+(\d+)g/i,
-    carbs: /carbohydrates?[:\s]+(\d+)g/i,
-    fat: /fat[:\s]+(\d+)g/i,
-    ingredients: /ingredients:(.+?)\./i,
+    calories: /calories[:\s]+(\d+(?:\.\d+)?)/i,
+    protein: /protein[:\s]+(\d+(?:\.\d+)?)\s*g/i,
+    carbs: /(?:carbohydrates?|carbs)[:\s]+(\d+(?:\.\d+)?)\s*g/i,
+    fat: /(?:total\s+)?fat[:\s]+(\d+(?:\.\d+)?)\s*g/i,
+    sugar: /sugars?[:\s]+(\d+(?:\.\d+)?)\s*g/i,
+    fiber: /(?:dietary\s+)?fiber[:\s]+(\d+(?:\.\d+)?)\s*g/i,
+    sodium: /sodium[:\s]+(\d+(?:\.\d+)?)\s*mg/i,
+    ingredients: /ingredients[\s:\n]+([^.]+)(?:\.|$)/i,
+    servingSize: /serving\s+size[:\s]+([^.]+)(?:\.|$)/i,
   };
 
   // Extract values using regex
