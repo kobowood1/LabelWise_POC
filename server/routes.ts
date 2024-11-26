@@ -72,10 +72,33 @@ export function registerRoutes(app: Express) {
   // OCR endpoint
   app.post("/api/ocr", async (req, res) => {
     try {
-      // Mock OCR implementation
-      const text = "Sample extracted text";
-      res.json({ text });
+      const multer = (await import('multer')).default;
+      const Tesseract = (await import('tesseract.js')).default;
+      const upload = multer({ storage: multer.memoryStorage() });
+
+      upload.single('image')(req, res, async (err) => {
+        if (err) {
+          return res.status(400).json({ error: "File upload failed" });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({ error: "No image file provided" });
+        }
+
+        const image = req.file.buffer;
+        const result = await Tesseract.recognize(image, 'eng');
+        
+        res.json({
+          text: result.data.text,
+          confidence: result.data.confidence,
+          boundingBoxes: result.data.words.map(word => ({
+            text: word.text,
+            box: word.bbox
+          }))
+        });
+      });
     } catch (error) {
+      console.error('OCR Error:', error);
       res.status(400).json({ error: "OCR processing failed" });
     }
   });
@@ -83,14 +106,51 @@ export function registerRoutes(app: Express) {
   // LLM analysis endpoint
   app.post("/api/analyze", async (req, res) => {
     try {
-      // Mock LLM analysis
-      const analysis = {
-        ingredients: [],
-        nutritionalInfo: {},
-        warnings: []
-      };
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const { text } = req.body;
+
+      if (!text) {
+        return res.status(400).json({ error: "No text provided for analysis" });
+      }
+
+      const prompt = `Analyze this food/medicine label text and provide a detailed breakdown:
+      "${text}"
+      
+      Provide the analysis in the following JSON format:
+      {
+        "summary": "Brief overview of the product",
+        "nutritionalAnalysis": {
+          "score": "health score out of 10",
+          "breakdown": {
+            "calories": "number",
+            "protein": "grams",
+            "carbs": "grams",
+            "fat": "grams"
+          }
+        },
+        "ingredients": ["list of ingredients"],
+        "allergens": ["potential allergens"],
+        "warnings": ["health warnings"],
+        "recommendations": ["health recommendations"]
+      }`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          { 
+            role: "system", 
+            content: "You are a medical and nutritional analysis expert. Analyze the given label text and provide detailed information." 
+          },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      });
+
+      const analysis = JSON.parse(completion.choices[0].message.content);
       res.json(analysis);
     } catch (error) {
+      console.error('Analysis Error:', error);
       res.status(400).json({ error: "Analysis failed" });
     }
   });
