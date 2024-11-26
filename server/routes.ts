@@ -227,7 +227,7 @@ export function registerRoutes(app: Express) {
 
       try {
         const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
+          model: "gpt-4o-2024-11-20",
           messages: [
             { 
               role: "system", 
