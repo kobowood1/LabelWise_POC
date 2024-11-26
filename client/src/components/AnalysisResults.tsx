@@ -8,7 +8,12 @@ interface NutritionInfo {
   protein: number;
   carbs: number;
   fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+  servingSize: string;
   ingredients: string[];
+  score: number;
 }
 
 interface AnalysisResult {
@@ -46,37 +51,70 @@ export default function AnalysisResults({ analysis, userAllergies = [] }: Analys
 
       <Card>
         <CardHeader>
-          <CardTitle>Nutritional Information</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            <span>Nutritional Information</span>
+            <Badge variant={analysis.nutritionInfo.score >= 7 ? "success" : analysis.nutritionInfo.score >= 4 ? "warning" : "destructive"}>
+              Score: {analysis.nutritionInfo.score}/10
+            </Badge>
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Calories</span>
-              <span>{analysis.nutritionInfo.calories}kcal</span>
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Calories</span>
+                <span>{analysis.nutritionInfo.calories}kcal</span>
+              </div>
+              <Progress value={analysis.nutritionInfo.calories / 20} className="h-2" />
             </div>
-            <Progress value={analysis.nutritionInfo.calories / 20} />
+            {analysis.nutritionInfo.servingSize && (
+              <div className="text-sm text-muted-foreground">
+                Serving Size: {analysis.nutritionInfo.servingSize}
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="space-y-1">
               <span className="text-sm font-medium">Protein</span>
-              <Progress value={analysis.nutritionInfo.protein} />
+              <Progress value={analysis.nutritionInfo.protein * 5} className="h-2" />
               <span className="text-xs text-muted-foreground">
                 {analysis.nutritionInfo.protein}g
               </span>
             </div>
             <div className="space-y-1">
               <span className="text-sm font-medium">Carbs</span>
-              <Progress value={analysis.nutritionInfo.carbs} />
+              <Progress value={analysis.nutritionInfo.carbs * 2} className="h-2" />
               <span className="text-xs text-muted-foreground">
                 {analysis.nutritionInfo.carbs}g
               </span>
             </div>
             <div className="space-y-1">
               <span className="text-sm font-medium">Fat</span>
-              <Progress value={analysis.nutritionInfo.fat} />
+              <Progress value={analysis.nutritionInfo.fat * 3} className="h-2" />
               <span className="text-xs text-muted-foreground">
                 {analysis.nutritionInfo.fat}g
+              </span>
+            </div>
+            <div className="space-y-1">
+              <span className="text-sm font-medium">Sugar</span>
+              <Progress value={analysis.nutritionInfo.sugar * 5} className="h-2" />
+              <span className="text-xs text-muted-foreground">
+                {analysis.nutritionInfo.sugar}g
+              </span>
+            </div>
+            <div className="space-y-1">
+              <span className="text-sm font-medium">Fiber</span>
+              <Progress value={analysis.nutritionInfo.fiber * 10} className="h-2" />
+              <span className="text-xs text-muted-foreground">
+                {analysis.nutritionInfo.fiber}g
+              </span>
+            </div>
+            <div className="space-y-1">
+              <span className="text-sm font-medium">Sodium</span>
+              <Progress value={analysis.nutritionInfo.sodium / 20} className="h-2" />
+              <span className="text-xs text-muted-foreground">
+                {analysis.nutritionInfo.sodium}mg
               </span>
             </div>
           </div>

@@ -50,12 +50,16 @@ export function extractNutritionalInfo(ocrText: string) {
   // Normalize text for better pattern matching
   const normalizedText = normalizeText(ocrText);
   
-  // Enhanced regex patterns for nutritional information
+  // Enhanced regex patterns for detailed nutritional information
   const patterns = {
     calories: /(?:calories|energy)[:\s]+(\d+(?:\.\d+)?)\s*(?:kcal)?/i,
     protein: /(?:protein|proteins)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
     carbs: /(?:carbohydrates?|carbs|total carbs)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
     fat: /(?:total fat|fat content|fats?)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    fiber: /(?:dietary fiber|fiber|fibre)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    sugar: /(?:sugars?|total sugar)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
+    sodium: /(?:sodium|salt)[:\s]+(\d+(?:\.\d+)?)\s*(?:mg|milligrams|g|grams)/i,
+    servingSize: /(?:serving size|per serving)[:\s]+([^.]+?)(?=(?:\.|per|contains|$))/i,
     sugar: /(?:sugars?|total sugar)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
     fiber: /(?:dietary fiber|fiber|fibre)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
     sodium: /(?:sodium|salt)[:\s]+(\d+(?:\.\d+)?)\s*(?:mg|milligrams|g|grams)/i,

@@ -216,7 +216,11 @@ export function registerRoutes(app: Express) {
             "calories": 0,
             "protein": 0,
             "carbs": 0,
-            "fat": 0
+            "fat": 0,
+            "fiber": 0,
+            "sugar": 0,
+            "sodium": 0,
+            "servingSize": ""
           }
         },
         "ingredients": [],
@@ -291,13 +295,37 @@ export function registerRoutes(app: Express) {
         if (allergens.length > 0) warnings.push("Contains common allergens - check ingredients carefully");
 
         const recommendations = [];
+        // Enhanced nutritional recommendations
         if (healthScore < 5) {
           recommendations.push("Consider healthier alternatives with better nutritional balance");
           if (nutritionInfo.protein < 10) {
             recommendations.push("May need to supplement with protein-rich foods");
           }
+          if (nutritionInfo.fiber < 3) {
+            recommendations.push("Low in fiber - consider adding fiber-rich foods to your meal");
+          }
         } else if (healthScore > 7) {
           recommendations.push("Good nutritional profile - suitable as part of a balanced diet");
+          if (nutritionInfo.fiber > 5) {
+            recommendations.push("Good source of fiber - helps with digestion and satiety");
+          }
+          if (nutritionInfo.protein > 15) {
+            recommendations.push("High in protein - good for muscle maintenance and recovery");
+          }
+        }
+
+        // Sodium recommendations
+        if (nutritionInfo.sodium > 500) {
+          recommendations.push("High sodium content - monitor daily sodium intake");
+          if (nutritionInfo.sodium > 1000) {
+            warnings.push("Very high sodium content - may not be suitable for those with hypertension");
+          }
+        }
+
+        // Sugar recommendations
+        if (nutritionInfo.sugar > 20) {
+          recommendations.push("High sugar content - consider limiting portion size");
+          warnings.push("High sugar content - may impact blood sugar levels");
         }
 
         if (allergens.length > 0) {
