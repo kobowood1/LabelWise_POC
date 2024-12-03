@@ -56,7 +56,7 @@ export default function MedicationInteractions() {
       toast({
         title: "Warning",
         description: "Please select at least two medications to check interactions",
-        variant: "warning",
+        variant: "destructive",
       });
       return;
     }

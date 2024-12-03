@@ -53,7 +53,7 @@ export default function AnalysisResults({ analysis, userAllergies = [] }: Analys
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <span>Nutritional Information</span>
-            <Badge variant={analysis.nutritionInfo.score >= 7 ? "success" : analysis.nutritionInfo.score >= 4 ? "warning" : "destructive"}>
+            <Badge variant={analysis.nutritionInfo.score >= 7 ? "default" : analysis.nutritionInfo.score >= 4 ? "secondary" : "destructive"}>
               Score: {analysis.nutritionInfo.score}/10
             </Badge>
           </CardTitle>
