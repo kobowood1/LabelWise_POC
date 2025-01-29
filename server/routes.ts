@@ -6,31 +6,52 @@ import { z } from "zod";
 
 export function registerRoutes(app: Express) {
   // User routes
-  app.post("/api/users", async (req, res) => {
-    try {
-      const user = await db.insert(users).values(req.body).returning();
-      res.json(user[0]);
-    } catch (error) {
-      res.status(400).json({ error: "Failed to create user" });
-    }
-  });
-
   app.get("/api/users/:id", async (req, res) => {
     try {
       const user = await db.query.users.findFirst({
         where: eq(users.id, parseInt(req.params.id))
       });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
       res.json(user);
     } catch (error) {
       res.status(404).json({ error: "User not found" });
     }
   });
 
-  // Preferences routes
+  // Get user preferences
+  app.get("/api/preferences/:userId", async (req, res) => {
+    try {
+      const preferences = await db.query.userPreferences.findFirst({
+        where: eq(userPreferences.userId, parseInt(req.params.userId))
+      });
+
+      if (!preferences) {
+        return res.status(404).json({
+          error: "Preferences not found",
+          message: "No preferences found for this user"
+        });
+      }
+
+      res.json(preferences);
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to fetch preferences",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Update user preferences
   app.post("/api/preferences", async (req, res) => {
     try {
       const preferencesSchema = z.object({
         userId: z.number(),
+        name: z.string(),
+        email: z.string().email(),
         allergies: z.array(z.string()).default([]),
         dietaryRestrictions: z.array(z.string()).default([]),
         healthConditions: z.array(z.string()).default([])
@@ -38,19 +59,26 @@ export function registerRoutes(app: Express) {
 
       const validatedData = preferencesSchema.parse(req.body);
 
-      const user = await db.query.users.findFirst({
-        where: eq(users.id, validatedData.userId)
-      });
+      // Update user information
+      await db
+        .update(users)
+        .set({
+          name: validatedData.name,
+          email: validatedData.email
+        })
+        .where(eq(users.id, validatedData.userId));
 
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
+      // Update or insert preferences
       const preferences = await db
         .insert(userPreferences)
-        .values(validatedData)
+        .values({
+          userId: validatedData.userId,
+          allergies: validatedData.allergies,
+          dietaryRestrictions: validatedData.dietaryRestrictions,
+          healthConditions: validatedData.healthConditions
+        })
         .onConflictDoUpdate({
-          target: userPreferences.userId,
+          target: [userPreferences.userId],
           set: {
             allergies: validatedData.allergies,
             dietaryRestrictions: validatedData.dietaryRestrictions,
@@ -62,18 +90,14 @@ export function registerRoutes(app: Express) {
 
       res.json(preferences[0]);
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Preferences Error:', error);
-      }
-
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Invalid preferences data",
-          details: error.errors 
+          details: error.errors
         });
       }
 
-      res.status(400).json({ 
+      res.status(400).json({
         error: "Failed to save preferences",
         message: error instanceof Error ? error.message : "Unknown error"
       });
@@ -351,7 +375,7 @@ export function registerRoutes(app: Express) {
         const prompt = `Analyze potential interactions between these medications:
         Primary Medication: ${medication?.name} (${medication?.dosage})
         Other Medications: ${otherMedications.map(m => `${m.name} (${m.dosage})`).join(', ')}
-
+        
         Provide analysis in JSON format:
         {
           "interactions": [{

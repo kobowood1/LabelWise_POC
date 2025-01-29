@@ -1,4 +1,5 @@
 import { useForm } from "react-hook-form";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -13,34 +14,74 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { updatePreferences } from "../lib/api";
 import MedicationInteractions from "../components/MedicationInteractions";
+import React from 'react';
+
+interface PreferencesFormData {
+  name: string;
+  email: string;
+  allergies: string[];
+  dietaryRestrictions: string[];
+  healthConditions: string[];
+}
 
 export default function ProfilePage() {
   const { toast } = useToast();
-  const form = useForm({
+
+  const { data: userData, isLoading: isUserLoading } = useQuery({
+    queryKey: ['user'],
+    queryFn: () => fetch('/api/users/1').then(res => res.json()),
+  });
+
+  const { data: preferences, isLoading: isPreferencesLoading } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => fetch('/api/preferences/1').then(res => res.json()),
+    enabled: !!userData,
+  });
+
+  const form = useForm<PreferencesFormData>({
     defaultValues: {
       name: "",
       email: "",
-      allergies: [] as string[],
-      dietaryRestrictions: [] as string[],
-      healthConditions: [] as string[],
+      allergies: [],
+      dietaryRestrictions: [],
+      healthConditions: [],
     },
   });
 
-  const onSubmit = async (data: any) => {
-    try {
-      await updatePreferences(data);
+  // Update form when data is loaded
+  React.useEffect(() => {
+    if (userData && preferences) {
+      form.reset({
+        name: userData.name,
+        email: userData.email,
+        allergies: preferences.allergies || [],
+        dietaryRestrictions: preferences.dietaryRestrictions || [],
+        healthConditions: preferences.healthConditions || [],
+      });
+    }
+  }, [userData, preferences, form]);
+
+  const updatePreferencesMutation = useMutation({
+    mutationFn: (data: PreferencesFormData) => 
+      updatePreferences({ ...data, userId: 1 }),
+    onSuccess: () => {
       toast({
         title: "Success",
         description: "Profile updated successfully",
       });
-    } catch (error) {
+    },
+    onError: () => {
       toast({
         title: "Error",
         description: "Failed to update profile",
         variant: "destructive",
       });
-    }
-  };
+    },
+  });
+
+  if (isUserLoading || isPreferencesLoading) {
+    return <div>Loading...</div>;
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -54,7 +95,7 @@ export default function ProfilePage() {
       </header>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(data => updatePreferencesMutation.mutate(data))} className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Personal Information</CardTitle>
@@ -132,8 +173,12 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
 
-          <Button type="submit" className="w-full">
-            Save Changes
+          <Button 
+            type="submit" 
+            className="w-full"
+            disabled={updatePreferencesMutation.isPending}
+          >
+            {updatePreferencesMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </form>
       </Form>
