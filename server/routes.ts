@@ -122,34 +122,37 @@ export function registerRoutes(app: Express) {
         }
 
         try {
-          // Array of image processing configurations to try
+          // Enhanced image processing configurations
           const processingConfigs = [
-            // Default processing
+            // Optimized for standard nutrition labels
             {
               grayscale: true,
               normalize: true,
-              linear: [1.5, -0.2],
-              median: 2,
-              sharpen: { sigma: 1.5 },
-              threshold: 128
+              linear: [1.6, -0.15],
+              median: 1,
+              sharpen: { sigma: 1.2, m1: 1.5, m2: 20, x1: 2, y2: 30, y3: 0.7 },
+              threshold: 135,
+              contrast: 1.2
             },
-            // Alternative processing for low contrast
+            // Enhanced for low contrast labels
             {
               grayscale: true,
               normalize: true,
               linear: [2.0, -0.1],
               median: 1,
-              sharpen: { sigma: 2.0 },
-              threshold: 140
+              sharpen: { sigma: 1.8, m1: 2.0, m2: 30, x1: 3, y2: 40, y3: 0.8 },
+              threshold: 145,
+              contrast: 1.4
             },
-            // Processing for high contrast
+            // Optimized for high contrast labels
             {
               grayscale: true,
               normalize: true,
-              linear: [1.2, -0.1],
-              median: 3,
-              sharpen: { sigma: 1.0 },
-              threshold: 120
+              linear: [1.3, -0.1],
+              median: 2,
+              sharpen: { sigma: 1.0, m1: 1.2, m2: 15, x1: 1.5, y2: 20, y3: 0.6 },
+              threshold: 125,
+              contrast: 1.1
             }
           ];
 
@@ -158,35 +161,60 @@ export function registerRoutes(app: Express) {
 
           for (const config of processingConfigs) {
             try {
-              const processedImageBuffer = await sharp(req.file.buffer)
+              let processedImage = sharp(req.file.buffer)
                 .grayscale(config.grayscale)
                 .normalize(config.normalize)
                 .linear(config.linear[0], config.linear[1])
                 .median(config.median)
-                .sharpen({ sigma: config.sharpen.sigma })
+                .sharpen({
+                  sigma: config.sharpen.sigma,
+                  m1: config.sharpen.m1,
+                  m2: config.sharpen.m2,
+                  x1: config.sharpen.x1,
+                  y2: config.sharpen.y2,
+                  y3: config.sharpen.y3
+                })
                 .threshold(config.threshold)
-                .png()
-                .toBuffer();
+                .gamma(1.2) // Improve contrast in mid-tones
+                .modulate({ brightness: 1.1, saturation: 0.8 }) // Fine-tune brightness
+                .jpeg({ quality: 95 }); // Use JPEG for better OCR results
+
+              const processedImageBuffer = await processedImage.toBuffer();
 
               const result = await Tesseract.recognize(processedImageBuffer, 'eng', {
                 logger: m => {
                   if (process.env.NODE_ENV === 'development') {
                     console.log(m);
                   }
-                }
+                },
+                tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,:%/-() ',
+                tessedit_pageseg_mode: '6', // Assume uniform text block
+                preserve_interword_spaces: '1',
+                language_model_penalty_non_dict_word: '0.5',
+                language_model_penalty_font: '0.6'
               });
 
-              const confidenceThreshold = 75;
+              // Enhanced word filtering and confidence calculation
+              const confidenceThreshold = 65; // Lowered threshold for better recall
               const words = result.data.words
-                .filter(word => word.confidence > confidenceThreshold)
+                .filter(word => {
+                  const isNumeric = /\d/.test(word.text);
+                  const confidenceThreshold = isNumeric ? 60 : 70; // Lower threshold for numbers
+                  return word.confidence > confidenceThreshold;
+                })
                 .map(word => ({
                   text: word.text.trim(),
                   confidence: word.confidence,
-                  box: word.bbox
+                  box: word.bbox,
+                  isNumeric: /\d/.test(word.text)
                 }));
 
+              // Calculate weighted confidence score
               const avgConfidence = words.length > 0
-                ? words.reduce((sum, word) => sum + word.confidence, 0) / words.length
+                ? words.reduce((sum, word) => {
+                    const weight = word.isNumeric ? 1.2 : 1.0; // Give higher weight to numeric values
+                    return sum + (word.confidence * weight);
+                  }, 0) / words.length
                 : 0;
 
               if (avgConfidence > highestConfidence) {
@@ -197,11 +225,11 @@ export function registerRoutes(app: Express) {
                     .join(' ')
                     .replace(/\s+/g, ' ')
                     .replace(/[^\w\s.,:%()/-]/g, '')
-                    .replace(/\b(\d+)\s*([a-zA-Z]+)\b/g, '$1$2')
+                    .replace(/(\d+)\s*([a-zA-Z]+)/g, '$1$2') // Join numbers with their units
                     .replace(/\b(ingredients|contains|nutrition facts)\b/gi, '\n$1\n')
                     .trim(),
                   confidence: avgConfidence,
-                  boundingBoxes: words,
+                  boundingBoxes: words.map(({ text, confidence, box }) => ({ text, confidence, box })),
                   preprocessing: {
                     words_filtered: result.data.words.length - words.length,
                     total_words: result.data.words.length

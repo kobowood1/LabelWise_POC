@@ -86,8 +86,17 @@ export function normalizeText(text: string): string {
 export function extractNumber(text: string, pattern: RegExp): number {
   const match = text.match(pattern);
   if (!match) return 0;
-  const value = parseFloat(match[1]);
-  return isNaN(value) ? 0 : value;
+
+  // Clean up the matched number
+  const valueStr = match[1].replace(/[^\d.]/g, '');
+  const value = parseFloat(valueStr);
+
+  // Validate the parsed value
+  if (isNaN(value) || value < 0 || value > 10000) { // Upper limit to catch obvious errors
+    return 0;
+  }
+
+  return value;
 }
 
 export function extractNutritionalInfo(ocrText: string) {
@@ -98,52 +107,69 @@ export function extractNutritionalInfo(ocrText: string) {
   // Normalize text for better pattern matching
   const normalizedText = normalizeText(ocrText);
 
-  // Enhanced regex patterns for detailed nutritional information
+  // Enhanced regex patterns with multiple format support
   const patterns = {
     calories: /(?:calories|energy)[:\s]+(\d+(?:\.\d+)?)\s*(?:kcal)?/i,
-    protein: /(?:protein|proteins)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
-    carbs: /(?:carbohydrates?|carbs|total carbs)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
-    fat: /(?:total fat|fat content|fats?)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
-    fiber: /(?:dietary fiber|fiber|fibre)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
-    sugar: /(?:sugars?|total sugar)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams)/i,
-    sodium: /(?:sodium|salt)[:\s]+(\d+(?:\.\d+)?)\s*(?:mg|milligrams|g|grams)/i,
+    protein: /(?:protein|proteins)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams?)/i,
+    carbs: /(?:carbohydrates?|carbs?|total carbs?)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams?)/i,
+    fat: /(?:total fat|fat content|fats?)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams?)/i,
+    fiber: /(?:dietary fiber|fiber|fibre)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams?)/i,
+    sugar: /(?:sugars?|total sugar)[:\s]+(\d+(?:\.\d+)?)\s*(?:g|grams?)/i,
+    sodium: /(?:sodium|salt)[:\s]+(\d+(?:\.\d+)?)\s*(?:mg|milligrams?|g|grams?)/i,
+    servingSize: /(?:serving size|per serving)[:\s]+([^.]+?)(?=(?:\.|per|contains|$))/i,
     ingredients: /ingredients[:\s]+([^.]+?)(?=(?:\.|nutrition|contains|allergen|$))/i,
-    servingSize: /serving\s+size[:\s]+([^.]+?)(?=(?:\.|per|contains|$))/i,
   };
 
-  // Extract and parse ingredients with better handling
-  const ingredientsMatch = normalizedText.match(patterns.ingredients);
-  const ingredients = ingredientsMatch
-    ? ingredientsMatch[1]
-        .split(/,|;|\(|\)/)
-        .map(i => i.trim())
-        .filter(i =>
-          i.length > 0 &&
-          !i.match(/^\d+$/) && // Filter out standalone numbers
-          !i.match(/^(?:and|or|contains|may contain)$/i) // Filter out connecting words
-        )
-    : [];
+  // Extract serving size first as it might affect other values
+  const servingSizeMatch = normalizedText.match(patterns.servingSize);
+  const servingSize = servingSizeMatch ? servingSizeMatch[1].trim() : '';
 
-  // Extract numerical values with validation
+  // Extract numerical values with validation and unit conversion
   const nutritionData = {
     calories: extractNumber(normalizedText, patterns.calories),
     protein: extractNumber(normalizedText, patterns.protein),
     carbs: extractNumber(normalizedText, patterns.carbs),
     fat: extractNumber(normalizedText, patterns.fat),
-    sugar: extractNumber(normalizedText, patterns.sugar),
     fiber: extractNumber(normalizedText, patterns.fiber),
+    sugar: extractNumber(normalizedText, patterns.sugar),
     sodium: extractNumber(normalizedText, patterns.sodium),
-    ingredients: ingredients,
-    servingSize: normalizedText.match(patterns.servingSize)?.[1]?.trim() || ''
+    servingSize: servingSize,
+    ingredients: [] as string[]
   };
 
-  // Validate extracted data
-  if (Object.values(nutritionData).every(val =>
-    (typeof val === 'number' && val === 0) ||
-    (Array.isArray(val) && val.length === 0) ||
-    (typeof val === 'string' && val === '')
-  )) {
+  // Extract and parse ingredients with better handling
+  const ingredientsMatch = normalizedText.match(patterns.ingredients);
+  if (ingredientsMatch) {
+    nutritionData.ingredients = ingredientsMatch[1]
+      .split(/,|;|\(|\)/)
+      .map(i => i.trim())
+      .filter(i => 
+        i.length > 0 &&
+        !i.match(/^\d+$/) && // Filter out standalone numbers
+        !i.match(/^(?:and|or|contains|may contain)$/i) // Filter out connecting words
+      );
+  }
+
+  // Additional validation for nutrition values
+  Object.entries(nutritionData).forEach(([key, value]) => {
+    if (typeof value === 'number' && (isNaN(value) || value < 0)) {
+      console.warn(`Invalid ${key} value detected:`, value);
+      (nutritionData as any)[key] = 0;
+    }
+  });
+
+  // Convert sodium to mg if given in grams
+  if (nutritionData.sodium > 0 && nutritionData.sodium < 1) {
+    nutritionData.sodium *= 1000; // Convert g to mg
+  }
+
+  // Log warning if no nutritional information found
+  if (Object.entries(nutritionData)
+    .filter(([key]) => key !== 'ingredients' && key !== 'servingSize')
+    .every(([_, val]) => val === 0)
+  ) {
     console.warn('No nutritional information could be extracted from the text');
+    console.log('Normalized text:', normalizedText);
   }
 
   return nutritionData;
