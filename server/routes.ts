@@ -163,7 +163,7 @@ export function registerRoutes(app: Express) {
             try {
               let processedImage = sharp(req.file.buffer)
                 .grayscale(config.grayscale)
-                .normalize(config.normalize ? { normalise: true } : { normalise: false })
+                .normalize(config.normalize ? { normalize: true } : { normalize: false })
                 .linear(config.linear[0], config.linear[1])
                 .median(config.median)
                 .sharpen({
@@ -318,7 +318,7 @@ export function registerRoutes(app: Express) {
         // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
         const completion = await openai.chat.completions.create({
           model: "gpt-4o",
-          messages: messages as any,
+          messages: messages,
           max_tokens: 1000,
           temperature: 0.7
         });
@@ -359,7 +359,7 @@ export function registerRoutes(app: Express) {
             console.log('Attempting fallback to GPT-4...');
             const fallbackCompletion = await openai.chat.completions.create({
               model: "gpt-4",
-              messages: messages as any,
+              messages: messages,
               max_tokens: 1000,
               temperature: 0.7
             });
@@ -467,7 +467,7 @@ export function registerRoutes(app: Express) {
         const prompt = `Analyze potential interactions between these medications:
         Primary Medication: ${medication?.name} (${medication?.dosage})
         Other Medications: ${otherMedications.map(m => `${m.name} (${m.dosage})`).join(', ')}
-        
+
         Provide analysis in JSON format:
         {
           "interactions": [{
