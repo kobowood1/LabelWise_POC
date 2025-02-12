@@ -163,7 +163,7 @@ export function registerRoutes(app: Express) {
             try {
               let processedImage = sharp(req.file.buffer)
                 .grayscale(config.grayscale)
-                .normalize(config.normalize ? { normalize: true } : { normalize: false })
+                .normalize(config.normalize)
                 .linear(config.linear[0], config.linear[1])
                 .median(config.median)
                 .sharpen({
