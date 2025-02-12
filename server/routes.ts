@@ -286,7 +286,8 @@ export function registerRoutes(app: Express) {
 
         const messages = [
           {
-            role: "user",
+            role: "system",
+            name: "analyzer",
             content: [
               {
                 type: "text",
