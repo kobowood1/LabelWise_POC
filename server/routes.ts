@@ -264,10 +264,18 @@ export function registerRoutes(app: Express) {
   // LLM analysis endpoint
   app.post("/api/analyze", async (req, res) => {
     try {
-      const { image, text } = req.body;
+      const { image } = req.body;
 
-      if (!image && !text) {
-        return res.status(400).json({ error: "No image or text provided for analysis" });
+      if (!image) {
+        return res.status(400).json({ error: "No image provided for analysis" });
+      }
+
+      // Ensure image is a valid base64 string
+      let base64Image = image;
+      if (image.startsWith('data:image')) {
+        base64Image = image;
+      } else {
+        base64Image = `data:image/jpeg;base64,${image}`;
       }
 
       const OpenAI = (await import('openai')).default;
@@ -296,23 +304,18 @@ export function registerRoutes(app: Express) {
               {
                 type: "image_url",
                 image_url: {
-                  url: image
+                  url: base64Image
                 }
               }
             ]
           }
         ];
 
-        if (text) {
-          messages[0].content.push({
-            type: "text",
-            text: `Additional OCR text detected: ${text}\nPlease incorporate this information in your analysis if relevant.`
-          });
-        }
+        console.log('Sending request to OpenAI...');
 
         const completion = await openai.chat.completions.create({
           model: "o1-mini",
-          messages,
+          messages: messages as any, // Type assertion to handle the content format
           max_tokens: 1000,
           temperature: 0.7
         });
@@ -321,7 +324,8 @@ export function registerRoutes(app: Express) {
           throw new Error("Invalid response from OpenAI API");
         }
 
-        const analysisText = completion.choices[0].message.content;
+        const analysisText = completion.choices[0].message.content || '';
+        console.log('Received response from OpenAI:', analysisText.substring(0, 100) + '...');
 
         // Parse the analysis into structured sections
         const sections = analysisText.split(/\d+\./).filter(Boolean).map(section => section.trim());
@@ -340,7 +344,7 @@ export function registerRoutes(app: Express) {
         };
 
         res.json(structuredAnalysis);
-      } catch (llmError) {
+      } catch (llmError: any) {
         console.error('LLM Analysis Error:', llmError);
         res.status(422).json({ 
           error: "Analysis failed", 
