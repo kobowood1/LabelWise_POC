@@ -104,7 +104,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // OCR endpoint
+  // OCR endpoint with retry support
   app.post("/api/ocr", async (req, res) => {
     try {
       const multer = (await import('multer')).default;
@@ -122,56 +122,106 @@ export function registerRoutes(app: Express) {
         }
 
         try {
-          const processedImageBuffer = await sharp(req.file.buffer)
-            .grayscale()
-            .normalize()
-            .linear(1.5, -0.2)
-            .median(2)
-            .sharpen({ sigma: 1.5 })
-            .threshold(128)
-            .png()
-            .toBuffer();
+          // Array of image processing configurations to try
+          const processingConfigs = [
+            // Default processing
+            {
+              grayscale: true,
+              normalize: true,
+              linear: [1.5, -0.2],
+              median: 2,
+              sharpen: { sigma: 1.5 },
+              threshold: 128
+            },
+            // Alternative processing for low contrast
+            {
+              grayscale: true,
+              normalize: true,
+              linear: [2.0, -0.1],
+              median: 1,
+              sharpen: { sigma: 2.0 },
+              threshold: 140
+            },
+            // Processing for high contrast
+            {
+              grayscale: true,
+              normalize: true,
+              linear: [1.2, -0.1],
+              median: 3,
+              sharpen: { sigma: 1.0 },
+              threshold: 120
+            }
+          ];
 
-          const result = await Tesseract.recognize(processedImageBuffer, 'eng', {
-            logger: m => {
-              if (process.env.NODE_ENV === 'development') {
-                console.log(m);
+          let bestResult = null;
+          let highestConfidence = 0;
+
+          for (const config of processingConfigs) {
+            try {
+              const processedImageBuffer = await sharp(req.file.buffer)
+                .grayscale(config.grayscale)
+                .normalize(config.normalize)
+                .linear(config.linear[0], config.linear[1])
+                .median(config.median)
+                .sharpen({ sigma: config.sharpen.sigma })
+                .threshold(config.threshold)
+                .png()
+                .toBuffer();
+
+              const result = await Tesseract.recognize(processedImageBuffer, 'eng', {
+                logger: m => {
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log(m);
+                  }
+                }
+              });
+
+              const confidenceThreshold = 75;
+              const words = result.data.words
+                .filter(word => word.confidence > confidenceThreshold)
+                .map(word => ({
+                  text: word.text.trim(),
+                  confidence: word.confidence,
+                  box: word.bbox
+                }));
+
+              const avgConfidence = words.length > 0
+                ? words.reduce((sum, word) => sum + word.confidence, 0) / words.length
+                : 0;
+
+              if (avgConfidence > highestConfidence) {
+                highestConfidence = avgConfidence;
+                bestResult = {
+                  text: words
+                    .map(word => word.text)
+                    .join(' ')
+                    .replace(/\s+/g, ' ')
+                    .replace(/[^\w\s.,:%()/-]/g, '')
+                    .replace(/\b(\d+)\s*([a-zA-Z]+)\b/g, '$1$2')
+                    .replace(/\b(ingredients|contains|nutrition facts)\b/gi, '\n$1\n')
+                    .trim(),
+                  confidence: avgConfidence,
+                  boundingBoxes: words,
+                  preprocessing: {
+                    words_filtered: result.data.words.length - words.length,
+                    total_words: result.data.words.length
+                  }
+                };
               }
+            } catch (processError) {
+              console.error('Processing configuration failed:', processError);
+              continue;
             }
-          });
+          }
 
-          const confidenceThreshold = 75;
-          const filteredWords = result.data.words
-            .filter(word => word.confidence > confidenceThreshold)
-            .map(word => ({
-              text: word.text.trim(),
-              confidence: word.confidence,
-              box: word.bbox
-            }));
-
-          const cleanText = filteredWords
-            .map(word => word.text)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .replace(/[^\w\s.,:%()/-]/g, '')
-            .replace(/\b(\d+)\s*([a-zA-Z]+)\b/g, '$1$2')
-            .replace(/\b(ingredients|contains|nutrition facts)\b/gi, '\n$1\n')
-            .trim();
-
-          const averageConfidence = filteredWords.length > 0
-            ? filteredWords.reduce((sum, word) => sum + word.confidence, 0) / filteredWords.length
-            : 0;
-
-          res.json({
-            text: cleanText,
-            confidence: averageConfidence,
-            boundingBoxes: filteredWords,
-            raw_text: result.data.text,
-            preprocessing: {
-              words_filtered: result.data.words.length - filteredWords.length,
-              total_words: result.data.words.length
-            }
-          });
+          if (bestResult && bestResult.confidence > 30) {
+            res.json(bestResult);
+          } else {
+            res.status(422).json({
+              error: "Low confidence in OCR results",
+              confidence: bestResult?.confidence || 0
+            });
+          }
         } catch (processError) {
           console.error('Image Processing Error:', processError);
           res.status(400).json({ error: "Image processing failed" });

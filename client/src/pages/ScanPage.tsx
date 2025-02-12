@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { performOCR, analyzeLabelContent } from "../lib/api";
 import { Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 interface AnalysisResult {
   summary: string;
@@ -32,6 +33,7 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export default function ScanPage() {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [results, setResults] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
 
@@ -56,8 +58,9 @@ export default function ScanPage() {
     }
 
     setIsProcessing(true);
+    setRetryAttempt(0);
     try {
-      // Process image with OCR
+      // Process image with OCR (retries handled internally)
       const ocrResult = await performOCR(image);
 
       if (!ocrResult.text) {
@@ -82,6 +85,7 @@ export default function ScanPage() {
       console.error("Scan processing error:", error);
     } finally {
       setIsProcessing(false);
+      setRetryAttempt(0);
     }
   };
 
@@ -138,9 +142,20 @@ export default function ScanPage() {
 
       {isProcessing && (
         <Card>
-          <CardContent className="flex items-center justify-center p-6">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <span className="ml-2">Processing image...</span>
+          <CardContent className="flex flex-col items-center justify-center p-6 space-y-4">
+            <div className="flex items-center">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <span className="ml-2">Processing image...</span>
+            </div>
+            {retryAttempt > 0 && (
+              <div className="w-full max-w-md space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Retry attempt: {retryAttempt}/3</span>
+                  <span>Please wait...</span>
+                </div>
+                <Progress value={retryAttempt * 33.33} />
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

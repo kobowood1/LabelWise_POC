@@ -1,3 +1,5 @@
+import { sleep } from './utils';
+
 interface OCRResult {
   text: string;
   confidence: number;
@@ -18,45 +20,58 @@ export class OCRError extends Error {
   }
 }
 
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
 export async function performOCR(image: File): Promise<OCRResult> {
-  // Create form data for image upload
-  const formData = new FormData();
-  formData.append('image', image);
+  let lastError: Error | null = null;
+  let attempt = 0;
 
-  try {
-    const response = await fetch('/api/ocr', {
-      method: 'POST',
-      body: formData,
-    });
+  while (attempt < MAX_RETRIES) {
+    try {
+      const formData = new FormData();
+      formData.append('image', image);
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null);
-      throw new OCRError(
-        'OCR processing failed',
-        errorData || { status: response.status }
-      );
+      const response = await fetch('/api/ocr', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new OCRError(
+          'OCR processing failed',
+          errorData || { status: response.status }
+        );
+      }
+
+      const result = await response.json();
+
+      // Validate OCR result structure
+      if (!result.text || typeof result.confidence !== 'number') {
+        throw new OCRError('Invalid OCR result format');
+      }
+
+      // If confidence is too low, throw error to trigger retry
+      if (result.confidence < 30) {
+        throw new OCRError('Low confidence OCR result', { confidence: result.confidence });
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      attempt++;
+
+      if (attempt < MAX_RETRIES) {
+        // Exponential backoff with jitter
+        const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1) * (0.5 + Math.random());
+        console.warn(`OCR attempt ${attempt} failed, retrying in ${Math.round(delay)}ms...`);
+        await sleep(delay);
+      }
     }
-
-    const result = await response.json();
-
-    // Validate OCR result structure
-    if (!result.text || typeof result.confidence !== 'number') {
-      throw new OCRError('Invalid OCR result format');
-    }
-
-    // If confidence is too low, warn about potential inaccuracies
-    if (result.confidence < 50) {
-      console.warn('Low confidence OCR result:', result.confidence);
-    }
-
-    return result;
-  } catch (error) {
-    if (error instanceof OCRError) {
-      throw error;
-    }
-    console.error('OCR Error:', error);
-    throw new OCRError('Failed to process image text', error);
   }
+
+  throw new OCRError(`OCR failed after ${MAX_RETRIES} attempts`, lastError);
 }
 
 export function normalizeText(text: string): string {
@@ -102,8 +117,8 @@ export function extractNutritionalInfo(ocrText: string) {
     ? ingredientsMatch[1]
         .split(/,|;|\(|\)/)
         .map(i => i.trim())
-        .filter(i => 
-          i.length > 0 && 
+        .filter(i =>
+          i.length > 0 &&
           !i.match(/^\d+$/) && // Filter out standalone numbers
           !i.match(/^(?:and|or|contains|may contain)$/i) // Filter out connecting words
         )
@@ -123,9 +138,9 @@ export function extractNutritionalInfo(ocrText: string) {
   };
 
   // Validate extracted data
-  if (Object.values(nutritionData).every(val => 
-    (typeof val === 'number' && val === 0) || 
-    (Array.isArray(val) && val.length === 0) || 
+  if (Object.values(nutritionData).every(val =>
+    (typeof val === 'number' && val === 0) ||
+    (Array.isArray(val) && val.length === 0) ||
     (typeof val === 'string' && val === '')
   )) {
     console.warn('No nutritional information could be extracted from the text');
@@ -160,7 +175,7 @@ export function detectAllergens(ingredients: string[], userAllergies: string[]) 
 
   for (const ingredient of ingredients) {
     for (const [allergen, keywords] of Object.entries(allergenKeywords)) {
-      if (keywords.some(keyword => 
+      if (keywords.some(keyword =>
         ingredient.toLowerCase().includes(keyword.toLowerCase())
       )) {
         if (userAllergies.includes(allergen)) {
