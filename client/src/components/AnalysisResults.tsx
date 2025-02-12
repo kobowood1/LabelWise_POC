@@ -78,9 +78,25 @@ export default function AnalysisResults({ analysis, className }: AnalysisResults
     }
   ];
 
+  // Function to clean markdown and format text
+  const cleanText = (text: string): string => {
+    return text
+      .replace(/^###\s*/gm, '') // Remove markdown headers
+      .replace(/^\d+\.\s*/gm, '') // Remove numbered list markers
+      .replace(/^\s*[-*]\s*/gm, '') // Remove bullet points
+      .replace(/`([^`]+)`/g, '$1') // Remove code blocks
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markers
+      .replace(/\*([^*]+)\*/g, '$1') // Remove italic markers
+      .replace(/_{2,}/g, '') // Remove horizontal rules
+      .replace(/#+\s*/g, '') // Remove any remaining header markers
+      .trim();
+  };
+
   // Function to split content into paragraphs and parse potential lists
   const formatContent = (content: string) => {
-    return content.split(/\n+/).map((paragraph, index) => {
+    const cleanedContent = cleanText(content);
+
+    return cleanedContent.split(/\n+/).map((paragraph, index) => {
       // Check if the paragraph starts with a bullet point or number
       if (paragraph.match(/^[-•*]|\d+\./)) {
         const items = paragraph
@@ -89,14 +105,14 @@ export default function AnalysisResults({ analysis, className }: AnalysisResults
           .filter(Boolean);
 
         return (
-          <ul key={index} className="list-disc list-inside space-y-1">
+          <ul key={index} className="list-disc list-inside space-y-1 ml-4">
             {items.map((item, itemIndex) => (
-              <li key={itemIndex}>{item}</li>
+              <li key={itemIndex} className="text-gray-700">{item}</li>
             ))}
           </ul>
         );
       }
-      return <p key={index} className="mb-2">{paragraph}</p>;
+      return <p key={index} className="mb-2 text-gray-700">{paragraph}</p>;
     });
   };
 
@@ -108,7 +124,7 @@ export default function AnalysisResults({ analysis, className }: AnalysisResults
         return (
           <Card key={index} className={className}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-gray-900">
                 <Icon className="h-5 w-5" />
                 <span>{title}</span>
               </CardTitle>
