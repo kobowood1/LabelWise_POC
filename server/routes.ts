@@ -127,7 +127,9 @@ export function registerRoutes(app: Express) {
             // Optimized for standard nutrition labels
             {
               grayscale: true,
-              normalize: true,
+              normalize: {
+                preserve: true
+              },
               linear: [1.6, -0.15],
               median: 1,
               sharpen: { sigma: 1.2, m1: 1.5, m2: 20, x1: 2, y2: 30, y3: 0.7 },
@@ -137,7 +139,9 @@ export function registerRoutes(app: Express) {
             // Enhanced for low contrast labels
             {
               grayscale: true,
-              normalize: true,
+              normalize: {
+                preserve: true
+              },
               linear: [2.0, -0.1],
               median: 1,
               sharpen: { sigma: 1.8, m1: 2.0, m2: 30, x1: 3, y2: 40, y3: 0.8 },
@@ -147,7 +151,9 @@ export function registerRoutes(app: Express) {
             // Optimized for high contrast labels
             {
               grayscale: true,
-              normalize: true,
+              normalize: {
+                preserve: true
+              },
               linear: [1.3, -0.1],
               median: 2,
               sharpen: { sigma: 1.0, m1: 1.2, m2: 15, x1: 1.5, y2: 20, y3: 0.6 },
@@ -187,7 +193,6 @@ export function registerRoutes(app: Express) {
                     console.log(m);
                   }
                 },
-                tessjs_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,:%/-() ',
                 tessedit_pageseg_mode: '6', // Assume uniform text block
                 preserve_interword_spaces: '1',
                 language_model_penalty_non_dict_word: '0.5',
@@ -287,7 +292,10 @@ export function registerRoutes(app: Express) {
         const messages = [
           {
             role: "system",
-            name: "analyzer",
+            content: "You are a medical and nutrition label analysis expert. Analyze the provided image and give detailed information about its contents."
+          },
+          {
+            role: "user",
             content: [
               {
                 type: "text",
