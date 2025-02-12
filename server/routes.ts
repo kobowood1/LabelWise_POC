@@ -169,7 +169,7 @@ export function registerRoutes(app: Express) {
             try {
               let processedImage = sharp(req.file.buffer)
                 .grayscale(config.grayscale)
-                .normalize(config.normalize)
+                .normalize()
                 .linear(config.linear[0], config.linear[1])
                 .median(config.median)
                 .sharpen({
@@ -193,10 +193,9 @@ export function registerRoutes(app: Express) {
                     console.log(m);
                   }
                 },
-                tessedit_pageseg_mode: '6', // Assume uniform text block
-                preserve_interword_spaces: '1',
-                language_model_penalty_non_dict_word: '0.5',
-                language_model_penalty_font: '0.6'
+                psm: 6, // Assume uniform text block
+                preserve_interword_spaces: 1,
+                wordsConfidence: true
               });
 
               // Enhanced word filtering and confidence calculation
@@ -289,10 +288,11 @@ export function registerRoutes(app: Express) {
       try {
         console.log('Starting OpenAI analysis...');
 
-        const messages = [
+        const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
           {
             role: "system",
-            content: "You are a medical and nutrition label analysis expert. Analyze the provided image and give detailed information about its contents."
+            content: "You are a medical and nutrition label analysis expert. Analyze the provided image and give detailed information about its contents.",
+            name: "system"
           },
           {
             role: "user",
