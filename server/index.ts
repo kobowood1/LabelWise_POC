@@ -78,11 +78,10 @@ app.use((req, res, next) => {
     }
 
     // Use port from environment or fallback to 5000
-    const PORT = process.env.PORT || 5000;
-    const HOST = '0.0.0.0'; // Bind to all network interfaces
+    const port = parseInt(process.env.PORT || "5000", 10);
 
-    server.listen(PORT, HOST, () => {
-      log(`Server running on http://${HOST}:${PORT}`);
+    server.listen(port, () => {
+      log(`Server running on http://0.0.0.0:${port}`);
     });
 
     // Handle server errors
@@ -93,11 +92,11 @@ app.use((req, res, next) => {
 
       switch (error.code) {
         case 'EACCES':
-          console.error(`Port ${PORT} requires elevated privileges`);
+          console.error(`Port ${port} requires elevated privileges`);
           process.exit(1);
           break;
         case 'EADDRINUSE':
-          console.error(`Port ${PORT} is already in use`);
+          console.error(`Port ${port} is already in use`);
           process.exit(1);
           break;
         default:
