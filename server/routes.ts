@@ -315,8 +315,9 @@ export function registerRoutes(app: Express) {
 
         console.log('Configured OpenAI request...');
 
+        // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
         const completion = await openai.chat.completions.create({
-          model: "gpt-4-vision-preview", // Updated to the correct model name
+          model: "gpt-4o",
           messages: messages as any,
           max_tokens: 1000,
           temperature: 0.7
@@ -351,8 +352,43 @@ export function registerRoutes(app: Express) {
       } catch (llmError: any) {
         console.error('LLM Analysis Error:', llmError);
         console.error('Error details:', llmError.response?.data || llmError);
-        res.status(422).json({ 
-          error: "Analysis failed", 
+
+        // If the model is not available, try falling back to GPT-4
+        if (llmError.code === 'model_not_found') {
+          try {
+            console.log('Attempting fallback to GPT-4...');
+            const fallbackCompletion = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: messages as any,
+              max_tokens: 1000,
+              temperature: 0.7
+            });
+
+            const fallbackAnalysisText = fallbackCompletion.choices[0].message.content || '';
+            const fallbackSections = fallbackAnalysisText.split(/\d+\./).filter(Boolean).map(section => section.trim());
+
+            const fallbackStructuredAnalysis = {
+              productOverview: fallbackSections[0] || "",
+              nutritionalInformation: fallbackSections[1] || "",
+              ingredientsAnalysis: fallbackSections[2] || "",
+              healthImplications: fallbackSections[3] || "",
+              allergenInformation: fallbackSections[4] || "",
+              usageInstructions: fallbackSections[5] || "",
+              warnings: fallbackSections[6] || "",
+              storageInformation: fallbackSections[7] || "",
+              additionalDetails: fallbackSections[8] || "",
+              rawAnalysis: fallbackAnalysisText
+            };
+
+            return res.json(fallbackStructuredAnalysis);
+          } catch (fallbackError: any) {
+            console.error('Fallback analysis failed:', fallbackError);
+            throw fallbackError;
+          }
+        }
+
+        res.status(422).json({
+          error: "Analysis failed",
           message: llmError.message,
           details: llmError.response?.data || llmError
         });
@@ -459,7 +495,7 @@ export function registerRoutes(app: Express) {
 
         // Store the analyzed interactions in the database
         for (const interaction of analysis.interactions) {
-          const interactingMed = otherMedications.find(m => 
+          const interactingMed = otherMedications.find(m =>
             m.name.toLowerCase() === interaction.medications[1].toLowerCase()
           );
 
