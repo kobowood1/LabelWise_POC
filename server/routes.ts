@@ -264,118 +264,88 @@ export function registerRoutes(app: Express) {
   // LLM analysis endpoint
   app.post("/api/analyze", async (req, res) => {
     try {
-      const { text } = req.body;
+      const { image, text } = req.body;
 
-      if (!text) {
-        return res.status(400).json({ error: "No text provided for analysis" });
+      if (!image && !text) {
+        return res.status(400).json({ error: "No image or text provided for analysis" });
       }
 
       const OpenAI = (await import('openai')).default;
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-      const prompt = `Analyze this food/medicine label text and provide a detailed nutritional breakdown:
-      "${text}"
-      
-      Provide the analysis in the following JSON format, ensuring all nutritional values are numbers (not strings) and properly scaled to their respective units:
-      {
-        "summary": "Brief overview of the product",
-        "nutritionalAnalysis": {
-          "score": "number 1-10 indicating overall nutritional value",
-          "breakdown": {
-            "calories": "number (kcal)",
-            "protein": "number (grams)",
-            "carbs": "number (grams)",
-            "fat": "number (grams)",
-            "fiber": "number (grams)",
-            "sugar": "number (grams)",
-            "sodium": "number (milligrams)",
-            "servingSize": "string (e.g., '1 cup', '100g')"
-          }
-        },
-        "ingredients": ["array of ingredient strings"],
-        "allergens": ["array of allergen strings"],
-        "warnings": ["array of warning strings"],
-        "recommendations": ["array of recommendation strings"]
-      }`;
-
       try {
+        const messages = [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Please analyze this food/medicine label in detail. Provide:
+                1. Product Overview
+                2. Complete Nutritional Information (all nutrients listed)
+                3. Ingredients Analysis
+                4. Health Implications
+                5. Allergen Information
+                6. Usage Instructions/Recommendations
+                7. Any Warnings or Special Notes
+                8. Storage Information
+                9. Additional Details (certifications, claims, etc.)
+
+                Format the response in clear sections with detailed explanations.`
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: image
+                }
+              }
+            ]
+          }
+        ];
+
+        if (text) {
+          messages[0].content.push({
+            type: "text",
+            text: `Additional OCR text detected: ${text}\nPlease incorporate this information in your analysis if relevant.`
+          });
+        }
+
         const completion = await openai.chat.completions.create({
           model: "o1-mini",
-          messages: [
-            { 
-              role: "system", 
-              content: "You are a medical and nutritional analysis expert. Analyze the given label text and provide detailed information in the exact JSON format specified. All numeric values should be numbers, not strings." 
-            },
-            { role: "user", content: prompt }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7,
-          max_tokens: 1000
+          messages,
+          max_tokens: 1000,
+          temperature: 0.7
         });
 
         if (!completion.choices || completion.choices.length === 0) {
           throw new Error("Invalid response from OpenAI API");
         }
 
-        const content = completion.choices[0].message.content;
-        if (!content) {
-          throw new Error("No content in OpenAI response");
-        }
+        const analysisText = completion.choices[0].message.content;
 
-        const analysis = JSON.parse(content);
-        res.json(analysis);
+        // Parse the analysis into structured sections
+        const sections = analysisText.split(/\d+\./).filter(Boolean).map(section => section.trim());
+
+        const structuredAnalysis = {
+          productOverview: sections[0] || "",
+          nutritionalInformation: sections[1] || "",
+          ingredientsAnalysis: sections[2] || "",
+          healthImplications: sections[3] || "",
+          allergenInformation: sections[4] || "",
+          usageInstructions: sections[5] || "",
+          warnings: sections[6] || "",
+          storageInformation: sections[7] || "",
+          additionalDetails: sections[8] || "",
+          rawAnalysis: analysisText
+        };
+
+        res.json(structuredAnalysis);
       } catch (llmError) {
         console.error('LLM Analysis Error:', llmError);
-        
-        const { extractNutritionalInfo, detectAllergens } = await import('../client/src/lib/ocr.js');
-        const nutritionInfo = extractNutritionalInfo(text);
-
-        const ingredientsPattern = /ingredients[\s:\n]+([^.]+?)(?=\.|$)/i;
-        const ingredientsMatch = text.match(ingredientsPattern);
-        const ingredients = ingredientsMatch 
-          ? ingredientsMatch[1]
-              .split(/,|\n/)
-              .map((i: string) => i.trim())
-              .filter((i: string) => i.length > 0)
-          : [];
-
-        const commonAllergens = [
-          'peanuts', 'dairy', 'milk', 'gluten', 'wheat', 
-          'shellfish', 'soy', 'eggs', 'tree nuts', 'fish', 
-          'sesame', 'mustard', 'celery', 'lupin', 'sulfites'
-        ];
-        const allergens = detectAllergens(ingredients, commonAllergens);
-
-        let healthScore = 5;
-        if (nutritionInfo.protein > 0 || nutritionInfo.carbs > 0 || nutritionInfo.fat > 0) {
-          healthScore = Math.min(10, Math.max(1, Math.round(
-            (nutritionInfo.protein * 2 +
-             (nutritionInfo.carbs < 50 ? 2 : -1) +
-             (nutritionInfo.fat < 15 ? 1 : -2) +
-             5)
-          )));
-        }
-
-        const warnings = [];
-        if (nutritionInfo.calories > 300) warnings.push("High calorie content - consider portion control");
-        if (nutritionInfo.fat > 20) warnings.push("High fat content - may affect cardiovascular health");
-        if (nutritionInfo.carbs > 50) warnings.push("High carbohydrate content - monitor blood sugar impact");
-        if (allergens.length > 0) warnings.push("Contains common allergens - check ingredients carefully");
-
-        res.json({
-          summary: "Analysis based on extracted text",
-          nutritionalAnalysis: {
-            score: healthScore,
-            breakdown: nutritionInfo
-          },
-          ingredients,
-          allergens,
-          warnings,
-          recommendations: [
-            "Please consult with a healthcare professional for detailed advice",
-            "Consider portion sizes based on your dietary needs",
-            "Monitor your reaction if you have known allergies"
-          ]
+        res.status(422).json({ 
+          error: "Analysis failed", 
+          message: llmError.message,
+          details: llmError.response?.data || llmError
         });
       }
     } catch (error) {
@@ -427,7 +397,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/medication-interactions/check", async (req, res) => {
     try {
       const { medicationId, otherMedicationIds } = req.body;
-      
+
       // First, check for existing interactions in the database
       const interactions = await db.query.medicationInteractions.findMany({
         where: and(
@@ -477,13 +447,13 @@ export function registerRoutes(app: Express) {
         });
 
         const analysis = JSON.parse(completion.choices[0].message.content || "{}");
-        
+
         // Store the analyzed interactions in the database
         for (const interaction of analysis.interactions) {
           const interactingMed = otherMedications.find(m => 
             m.name.toLowerCase() === interaction.medications[1].toLowerCase()
           );
-          
+
           if (interactingMed) {
             await db.insert(medicationInteractions).values({
               medicationId,
