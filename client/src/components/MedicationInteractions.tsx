@@ -14,7 +14,7 @@ export default function MedicationInteractions() {
 
   const { data: medications, isLoading } = useQuery({
     queryKey: ["medications"],
-    queryFn: () => getUserMedications(1), // Using userId 1 for testing
+    queryFn: () => getUserMedications(5), // Using our new test user ID
   });
 
   const checkInteractionsMutation = useMutation({

@@ -34,7 +34,7 @@ export const medicationInteractions = pgTable("medication_interactions", {
 
 export const userPreferences = pgTable("user_preferences", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer().notNull().references(() => users.id),
+  userId: integer().notNull().references(() => users.id).unique(),
   allergies: jsonb("allergies").default([]).notNull(),
   dietaryRestrictions: jsonb("dietary_restrictions").default([]).notNull(),
   healthConditions: jsonb("health_conditions").default([]).notNull(),

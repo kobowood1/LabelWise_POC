@@ -29,12 +29,12 @@ export default function ProfilePage() {
 
   const { data: userData, isLoading: isUserLoading } = useQuery({
     queryKey: ['user'],
-    queryFn: () => fetch('/api/users/1').then(res => res.json()),
+    queryFn: () => fetch('/api/users/5').then(res => res.json()),
   });
 
   const { data: preferences, isLoading: isPreferencesLoading } = useQuery({
     queryKey: ['preferences'],
-    queryFn: () => fetch('/api/preferences/1').then(res => res.json()),
+    queryFn: () => fetch('/api/preferences/5').then(res => res.json()),
     enabled: !!userData,
   });
 
@@ -63,7 +63,7 @@ export default function ProfilePage() {
 
   const updatePreferencesMutation = useMutation({
     mutationFn: (data: PreferencesFormData) => 
-      updatePreferences({ ...data, userId: 1 }),
+      updatePreferences({ ...data, userId: 5 }),
     onSuccess: () => {
       toast({
         title: "Success",
