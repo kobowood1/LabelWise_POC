@@ -163,7 +163,7 @@ export function registerRoutes(app: Express) {
             try {
               let processedImage = sharp(req.file.buffer)
                 .grayscale(config.grayscale)
-                .normalize({ enabled: config.normalize })
+                .normalize(config.normalize ? { normalise: true } : { normalise: false })
                 .linear(config.linear[0], config.linear[1])
                 .median(config.median)
                 .sharpen({
@@ -187,12 +187,11 @@ export function registerRoutes(app: Express) {
                     console.log(m);
                   }
                 },
-                tessjs_create_pdf: '0',
-                tessjs_image_rectangle: '',
-                tessjs_pdf_name: '',
-                tessjs_pdf_title: '',
-                load_system_dawg: '0',
-                load_freq_dawg: '0'
+                tessjs_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,:%/-() ',
+                tessedit_pageseg_mode: '6', // Assume uniform text block
+                preserve_interword_spaces: '1',
+                language_model_penalty_non_dict_word: '0.5',
+                language_model_penalty_font: '0.6'
               });
 
               // Enhanced word filtering and confidence calculation
@@ -301,7 +300,7 @@ export function registerRoutes(app: Express) {
 
       try {
         const completion = await openai.chat.completions.create({
-          model: process.env.OPENAI_MODEL || "gpt-4",
+          model: "gpt-3.5-turbo",
           messages: [
             { 
               role: "system", 
@@ -466,7 +465,7 @@ export function registerRoutes(app: Express) {
         }`;
 
         const completion = await openai.chat.completions.create({
-          model: process.env.OPENAI_MODEL || "gpt-4",
+          model: "gpt-3.5-turbo",
           messages: [
             {
               role: "system",
