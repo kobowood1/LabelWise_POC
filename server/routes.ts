@@ -300,7 +300,7 @@ export function registerRoutes(app: Express) {
 
       try {
         const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
+          model: "o1-mini",
           messages: [
             { 
               role: "system", 
@@ -328,7 +328,6 @@ export function registerRoutes(app: Express) {
         console.error('LLM Analysis Error:', llmError);
         
         const { extractNutritionalInfo, detectAllergens } = await import('../client/src/lib/ocr.js');
-
         const nutritionInfo = extractNutritionalInfo(text);
 
         const ingredientsPattern = /ingredients[\s:\n]+([^.]+?)(?=\.|$)/i;
@@ -465,7 +464,7 @@ export function registerRoutes(app: Express) {
         }`;
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
+          model: "o1-mini",
           messages: [
             {
               role: "system",
