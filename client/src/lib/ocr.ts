@@ -5,6 +5,17 @@ interface OCRResult {
     text: string;
     box: [number, number, number, number];
   }>;
+  preprocessing?: {
+    words_filtered: number;
+    total_words: number;
+  };
+}
+
+export class OCRError extends Error {
+  constructor(message: string, public readonly details?: any) {
+    super(message);
+    this.name = 'OCRError';
+  }
 }
 
 export async function performOCR(image: File): Promise<OCRResult> {
@@ -19,14 +30,32 @@ export async function performOCR(image: File): Promise<OCRResult> {
     });
 
     if (!response.ok) {
-      throw new Error('OCR processing failed');
+      const errorData = await response.json().catch(() => null);
+      throw new OCRError(
+        'OCR processing failed',
+        errorData || { status: response.status }
+      );
     }
 
     const result = await response.json();
+
+    // Validate OCR result structure
+    if (!result.text || typeof result.confidence !== 'number') {
+      throw new OCRError('Invalid OCR result format');
+    }
+
+    // If confidence is too low, warn about potential inaccuracies
+    if (result.confidence < 50) {
+      console.warn('Low confidence OCR result:', result.confidence);
+    }
+
     return result;
   } catch (error) {
+    if (error instanceof OCRError) {
+      throw error;
+    }
     console.error('OCR Error:', error);
-    throw new Error('Failed to process image text');
+    throw new OCRError('Failed to process image text', error);
   }
 }
 
@@ -47,9 +76,13 @@ export function extractNumber(text: string, pattern: RegExp): number {
 }
 
 export function extractNutritionalInfo(ocrText: string) {
+  if (!ocrText || typeof ocrText !== 'string') {
+    throw new Error('Invalid input: OCR text is required');
+  }
+
   // Normalize text for better pattern matching
   const normalizedText = normalizeText(ocrText);
-  
+
   // Enhanced regex patterns for detailed nutritional information
   const patterns = {
     calories: /(?:calories|energy)[:\s]+(\d+(?:\.\d+)?)\s*(?:kcal)?/i,
@@ -76,7 +109,7 @@ export function extractNutritionalInfo(ocrText: string) {
         )
     : [];
 
-  // Extract numerical values
+  // Extract numerical values with validation
   const nutritionData = {
     calories: extractNumber(normalizedText, patterns.calories),
     protein: extractNumber(normalizedText, patterns.protein),
@@ -89,16 +122,38 @@ export function extractNutritionalInfo(ocrText: string) {
     servingSize: normalizedText.match(patterns.servingSize)?.[1]?.trim() || ''
   };
 
+  // Validate extracted data
+  if (Object.values(nutritionData).every(val => 
+    (typeof val === 'number' && val === 0) || 
+    (Array.isArray(val) && val.length === 0) || 
+    (typeof val === 'string' && val === '')
+  )) {
+    console.warn('No nutritional information could be extracted from the text');
+  }
+
   return nutritionData;
 }
 
 export function detectAllergens(ingredients: string[], userAllergies: string[]) {
+  if (!Array.isArray(ingredients) || !Array.isArray(userAllergies)) {
+    throw new Error('Invalid input: ingredients and userAllergies must be arrays');
+  }
+
   const allergenKeywords = {
     'peanuts': ['peanut', 'arachis'],
-    'dairy': ['milk', 'cream', 'lactose', 'whey', 'casein'],
-    'gluten': ['wheat', 'barley', 'rye', 'gluten'],
-    'shellfish': ['shrimp', 'crab', 'lobster', 'shellfish'],
-    // Add more allergen keywords as needed
+    'tree nuts': ['almond', 'cashew', 'walnut', 'pecan', 'pistachio', 'hazelnut', 'macadamia'],
+    'dairy': ['milk', 'cream', 'lactose', 'whey', 'casein', 'butter', 'cheese', 'yogurt'],
+    'eggs': ['egg', 'albumin', 'ovoglobulin', 'livetin'],
+    'soy': ['soy', 'soya', 'edamame', 'tofu'],
+    'wheat': ['wheat', 'flour', 'bread', 'pasta'],
+    'gluten': ['wheat', 'barley', 'rye', 'malt', 'gluten'],
+    'fish': ['fish', 'cod', 'salmon', 'tuna', 'halibut'],
+    'shellfish': ['shrimp', 'crab', 'lobster', 'prawn', 'crayfish'],
+    'sesame': ['sesame', 'tahini'],
+    'mustard': ['mustard', 'mustard seed'],
+    'celery': ['celery', 'celeriac'],
+    'lupin': ['lupin', 'lupini'],
+    'sulfites': ['sulfite', 'sulphite', 'metabisulfite']
   };
 
   const detectedAllergens = new Set<string>();
