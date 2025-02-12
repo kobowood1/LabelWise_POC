@@ -78,9 +78,29 @@ app.use((req, res, next) => {
     }
 
     // Use port from environment or fallback to 5000
-    const port = parseInt(process.env.PORT || "5000", 10);
+    const tryPort = async (startPort: number): Promise<number> => {
+      for (let port = startPort; port < startPort + 10; port++) {
+        try {
+          await new Promise((resolve, reject) => {
+            const testServer = createServer();
+            testServer.listen(port, '0.0.0.0')
+              .once('listening', () => {
+                testServer.close();
+                resolve(port);
+              })
+              .once('error', reject);
+          });
+          return port;
+        } catch (err) {
+          continue;
+        }
+      }
+      throw new Error('No available ports found');
+    };
 
-    server.listen(port, () => {
+    const port = await tryPort(parseInt(process.env.PORT || "5000", 10));
+    
+    server.listen(port, '0.0.0.0', () => {
       log(`Server running on http://0.0.0.0:${port}`);
     });
 
