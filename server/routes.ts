@@ -282,6 +282,8 @@ export function registerRoutes(app: Express) {
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
       try {
+        console.log('Starting OpenAI analysis...');
+
         const messages = [
           {
             role: "user",
@@ -311,21 +313,23 @@ export function registerRoutes(app: Express) {
           }
         ];
 
-        console.log('Sending request to OpenAI...');
+        console.log('Configured OpenAI request...');
 
         const completion = await openai.chat.completions.create({
-          model: "o1-mini",
-          messages: messages as any, // Type assertion to handle the content format
+          model: "gpt-4-vision-preview", // Updated to the correct model name
+          messages: messages as any,
           max_tokens: 1000,
           temperature: 0.7
         });
+
+        console.log('Received OpenAI response...');
 
         if (!completion.choices || completion.choices.length === 0) {
           throw new Error("Invalid response from OpenAI API");
         }
 
         const analysisText = completion.choices[0].message.content || '';
-        console.log('Received response from OpenAI:', analysisText.substring(0, 100) + '...');
+        console.log('Analysis text received:', analysisText.substring(0, 100) + '...');
 
         // Parse the analysis into structured sections
         const sections = analysisText.split(/\d+\./).filter(Boolean).map(section => section.trim());
@@ -346,6 +350,7 @@ export function registerRoutes(app: Express) {
         res.json(structuredAnalysis);
       } catch (llmError: any) {
         console.error('LLM Analysis Error:', llmError);
+        console.error('Error details:', llmError.response?.data || llmError);
         res.status(422).json({ 
           error: "Analysis failed", 
           message: llmError.message,
@@ -354,7 +359,7 @@ export function registerRoutes(app: Express) {
       }
     } catch (error) {
       console.error('Analysis Error:', error);
-      res.status(400).json({ error: "Analysis failed" });
+      res.status(400).json({ error: "Analysis failed", details: error });
     }
   });
 
