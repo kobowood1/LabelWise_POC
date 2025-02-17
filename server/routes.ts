@@ -367,7 +367,7 @@ export function registerRoutes(app: Express) {
             console.log('Attempting fallback to GPT-4...');
             const fallbackCompletion = await openai.chat.completions.create({
               model: "gpt-4",
-              messages: messages,
+              messages,
               max_tokens: 1000,
               temperature: 0.7
             });
