@@ -193,7 +193,6 @@ export function registerRoutes(app: Express) {
                     console.log(m);
                   }
                 },
-                preserve_interword_spaces: 1,
                 wordsConfidence: true
               });
 
@@ -289,35 +288,25 @@ export function registerRoutes(app: Express) {
 
         const messages = [
           {
-            role: "system",
-            content: "You are a medical and nutrition label analysis expert. Analyze the provided image and give detailed information about its contents.",
-            name: "system"
+            role: "system" as const,
+            content: "You are a medical and nutrition label analysis expert. Analyze the provided image and give detailed information about its contents."
           },
           {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Please analyze this food/medicine label in detail. Provide:
-                1. Product Overview
-                2. Complete Nutritional Information (all nutrients listed)
-                3. Ingredients Analysis
-                4. Health Implications
-                5. Allergen Information
-                6. Usage Instructions/Recommendations
-                7. Any Warnings or Special Notes
-                8. Storage Information
-                9. Additional Details (certifications, claims, etc.)
+            role: "user" as const,
+            content: `Please analyze this food/medicine label in detail. Provide:
+              1. Product Overview
+              2. Complete Nutritional Information (all nutrients listed)
+              3. Ingredients Analysis
+              4. Health Implications
+              5. Allergen Information
+              6. Usage Instructions/Recommendations
+              7. Any Warnings or Special Notes
+              8. Storage Information
+              9. Additional Details (certifications, claims, etc.)
 
-                Format the response in clear sections with detailed explanations.`
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: base64Image
-                }
-              }
-            ]
+              Format the response in clear sections with detailed explanations.
+
+              Image: ${base64Image}`
           }
         ];
 
