@@ -193,7 +193,6 @@ export function registerRoutes(app: Express) {
                     console.log(m);
                   }
                 },
-                psm: 6, // Assume uniform text block
                 preserve_interword_spaces: 1,
                 wordsConfidence: true
               });
@@ -288,7 +287,7 @@ export function registerRoutes(app: Express) {
       try {
         console.log('Starting OpenAI analysis...');
 
-        const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        const messages = [
           {
             role: "system",
             content: "You are a medical and nutrition label analysis expert. Analyze the provided image and give detailed information about its contents.",
